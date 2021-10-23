@@ -46,7 +46,7 @@ and step_brane = function
 | _ -> failwith ""
 
 let rec dot_of_system i = function
-| Empty -> i + 1, Printf.sprintf "empty_%d[shape=none,label=\"∅\"]" i
+| Empty -> i + 1, Printf.sprintf "empty_%d[shape=none,label=\"∅\"];" i
 | Compose (p, q) ->
   let i, pdot = dot_of_system i p in
   let i, qdot = dot_of_system i q in
@@ -65,6 +65,22 @@ type 'a tree =
 let rec eval_tree e n x = Node (x, 
   if n <= 0 then []
   else List.map ~f:(eval_tree e (n - 1)) (e x))
+
+(* let rec dot_of_tree dot_of_x i = function
+| Node (x, ys) ->
+  let i, xdot = dot_of_x i x in
+  List.fold_right
+    ~f:(fun y (j, s) ->
+      let j, ydot = dot_of_tree dot_of_x j y in
+      j, Printf.sprintf "%s %s dummy_%d -> dummy_%d [ltail=cluster_%d, lhead=cluster_%d];" s ydot (i - 1) (j - 1) (i - 1) (j - 1))
+    ~init:(i, xdot)
+    ys *)
+
+
+  (* i + 1, (Printf.sprintf "subgraph cluster_%d { style=bold; %s %s }" i xdot ydots) *)
+
+
+  (* let s1 = Printf.sprintf "subgraph cluster_%d { style=bold; %s %s }" i xdot ydots in *)
 
 (* let rec eval_dag e n x = Node (x, ) *)
 
