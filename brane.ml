@@ -46,16 +46,17 @@ and step_brane = function
 | _ -> failwith ""
 
 let rec dot_of_system i = function
-| Empty -> i, "empty"
+| Empty -> i + 1, Printf.sprintf "empty_%d[shape=none,label=\"∅\"]" i
 | Compose (p, q) ->
   let i, pdot = dot_of_system i p in
   let i, qdot = dot_of_system i q in
-    (* node[shape=record] *)
-  i + 1, Printf.sprintf "
-subgraph cluster_%d { 
-  compose[label = \"<f0> %s | <f1> %s\"] 
-}" i pdot qdot
-| _ -> failwith ""
+  i + 1, pdot ^ " " ^ qdot
+| Replicate p ->
+  let i, pdot = dot_of_system i p in
+  i + 1, Printf.sprintf "subgraph cluster_%d { style=dashed; %s }" i pdot
+| Membrane (b, p) -> 
+  let i, pdot = dot_of_system i p in
+  i + 1, Printf.sprintf "subgraph cluster_%d { style=solid; label=\"%s\"; %s }" i b pdot
 
 type 'a tree = 
   | Node of 'a * 'a tree list
@@ -80,13 +81,3 @@ let%expect_test "empty eval" =
     (Node (Compose Empty (Compose Empty Empty))
      ((Node (Compose Empty Empty) ((Node Empty ())))
       (Node (Compose Empty Empty) ((Node Empty ()))))) |}]
-
-let%expect_test "" =
-  print_endline (snd (dot_of_system 0 s1));
-  [%expect {|
-    subgraph cluster_1 {
-      compose[label = "<f0> empty | <f1>
-    subgraph cluster_0 {
-      compose[label = "<f0> empty | <f1> empty"]
-    }"]
-    } |}]

@@ -1,5 +1,15 @@
 (library
  (name brane)
  (inline_tests)
+ (modules brane)
  (libraries core)
- (preprocess (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))
+ (preprocess
+  (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))
+
+(executable
+ (name main)
+ (modules main)
+ (libraries core brane)
+ (preprocess
+  (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))
+
