@@ -1,62 +1,64 @@
 open Core
 
 (* nests of membranes *)
-type system =
-  | Empty
-  | Compose of system * system
-  | Replicate of system
-  | Membrane of brane * system
+type system = brane list
   [@@deriving sexp]
-(* combinations of actions *)
-and brane = string
-  (* | Void
-  | Join of brane * brane
-  | Fix of brane
-  | Action of action * brane
+and brane =
+  { name: action
+  ; interior: system }
+  [@@deriving sexp]
 (* bitonal actions *)
-and action =
+and action = op list
+  [@@deriving sexp]
+and op =
   | Phago
-  | CoPhago of brane
+  | CoPhago of { inner: action; outer: action }
   | Exo
-  | CoExo
-  | Pino of brane *)
+  | CoExo of action
+  | Pino of { inner: action; outer: action }
+  [@@deriving sexp]
 
-(* for now, don't guard fixed points *)
-(* embrace nondeterminism in the small-step relation? *)
-let rec step_system = function
-| Empty -> []
-| Compose (Empty, p) -> p :: 
-  List.map ~f:(fun p' -> Compose (Empty, p')) (step_system p)
-| Compose (p, Empty) -> p ::
-  List.map ~f:(fun p' -> Compose (p', Empty)) (step_system p)
-| Compose (p, q) -> 
-  List.map ~f:(fun p' -> Compose (p', q)) (step_system p) @
-  List.map ~f:(fun q' -> Compose (p, q')) (step_system q)
-(* TODO: this isn't quite right... Empty is special and should expand if necessary *)
-| Replicate Empty -> [Empty]
-(* TODO: Replicate Replicate ... *)
-| Replicate p ->
-  Compose (p, Replicate p) ::
-  List.map ~f:(fun p' -> Replicate p') (step_system p)
-(* | Membrane (Void, Empty) -> [Empty] *)
-| Membrane (b, p) -> 
-  List.map ~f:(fun b' -> Membrane (b', p)) (step_brane b) @
-  List.map ~f:(fun p' -> Membrane (b, p')) (step_system p)
-and step_brane = function
-| _ -> failwith ""
 
-let rec dot_of_system i = function
-| Empty -> i + 1, Printf.sprintf "empty_%d[shape=none,label=\"∅\"];" i
-| Compose (p, q) ->
-  let i, pdot = dot_of_system i p in
-  let i, qdot = dot_of_system i q in
-  i + 1, pdot ^ " " ^ qdot
-| Replicate p ->
-  let i, pdot = dot_of_system i p in
-  i + 1, Printf.sprintf "subgraph cluster_%d { style=dashed; %s }" i pdot
-| Membrane (b, p) -> 
-  let i, pdot = dot_of_system i p in
-  i + 1, Printf.sprintf "subgraph cluster_%d { style=solid; label=\"%s\"; %s }" i b pdot
+let hole_fold_right ~f ~init xs =
+  let _, _, acc = List.fold_right 
+    ~f:(fun x (hd, tl, acc) ->
+      let tl' = List.tl_exn tl in
+      hd @ [x], tl', f hd x tl' acc)
+    ~init:([], xs, init)
+    xs
+  in acc
+
+let hole_map_concat ~f =
+  hole_fold_right
+    ~f:(fun hd x tl acc ->
+      f hd x tl @ acc)
+    ~init:[]
+
+let rec step_system bs =
+  hole_map_concat
+    ~f:(fun hd b tl ->
+      List.map
+        ~f:(fun b' -> hd @ [b'] @ tl)
+        (step_brane b))
+    bs
+and step_brane { name; interior } =
+  (* pino step *)
+  hole_map_concat
+    ~f:(fun hd op tl ->
+      match op with 
+      | Pino { inner; outer } -> 
+        [{ name = hd @ outer @ tl
+        ; interior = 
+          [{ name = inner
+          ; interior = [] }] }]
+      | _ -> [])
+    name
+  (* recursive step *)
+  @ List.map
+    ~f:(fun interior' ->
+      { name = name
+      ; interior = interior' })
+    (step_system interior)
 
 type 'a tree = 
   | Node of 'a * 'a tree list
@@ -66,34 +68,15 @@ let rec eval_tree e n x = Node (x,
   if n <= 0 then []
   else List.map ~f:(eval_tree e (n - 1)) (e x))
 
-(* let rec dot_of_tree dot_of_x i = function
-| Node (x, ys) ->
-  let i, xdot = dot_of_x i x in
-  List.fold_right
-    ~f:(fun y (j, s) ->
-      let j, ydot = dot_of_tree dot_of_x j y in
-      j, Printf.sprintf "%s %s dummy_%d -> dummy_%d [ltail=cluster_%d, lhead=cluster_%d];" s ydot (i - 1) (j - 1) (i - 1) (j - 1))
-    ~init:(i, xdot)
-    ys *)
-
-
-  (* i + 1, (Printf.sprintf "subgraph cluster_%d { style=bold; %s %s }" i xdot ydots) *)
-
-
-  (* let s1 = Printf.sprintf "subgraph cluster_%d { style=bold; %s %s }" i xdot ydots in *)
-
-(* let rec eval_dag e n x = Node (x, ) *)
-
 let print_system_eval_tree s = 
   s |> eval_tree step_system 10
   |> sexp_of_tree sexp_of_system
   |> Sexp.to_string_hum |> print_endline
 
-let s1 = Compose (Empty, Compose (Empty, Empty))
-
-let%expect_test "empty eval" =
-  print_system_eval_tree s1;
+let%expect_test "pino eval" =
+  print_system_eval_tree
+    [{ name = [Pino { inner = []; outer = [] }]
+    ; interior = [] }];
   [%expect {|
-    (Node (Compose Empty (Compose Empty Empty))
-     ((Node (Compose Empty Empty) ((Node Empty ())))
-      (Node (Compose Empty Empty) ((Node Empty ()))))) |}]
+    (Node (((name ((Pino (inner ()) (outer ())))) (interior ())))
+     ((Node (((name ()) (interior (((name ()) (interior ())))))) ()))) |}]
