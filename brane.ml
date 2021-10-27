@@ -114,10 +114,23 @@ let print_system_eval_tree s =
   |> sexp_of_tree sexp_of_system
   |> Sexp.to_string_hum |> print_endline
 
-let%expect_test "pino eval" =
+let%expect_test "basic pino eval" =
   print_system_eval_tree
     [{ name = [Pino { inner = []; outer = [] }]
     ; interior = [] }];
   [%expect {|
     (Node (((name ((Pino (inner ()) (outer ())))) (interior ())))
      ((Node (((name ()) (interior (((name ()) (interior ())))))) ()))) |}]
+
+let%expect_test "basic phago eval" =
+  print_system_eval_tree
+    [{ name = [Phago []]; interior = [] }
+    ;{ name = [CoPhago { inner = []; outer = [] }]; interior = [] }];
+  [%expect {|
+    (Node
+     (((name ((Phago ()))) (interior ()))
+      ((name ((CoPhago (inner ()) (outer ())))) (interior ())))
+     ((Node
+       (((name ())
+         (interior (((name ()) (interior (((name ()) (interior ())))))))))
+       ()))) |}]
