@@ -65,6 +65,21 @@ let phago_step bs =
                   @ br_tl]
               | _ -> [])))
 
+let exo_step _ = []
+
+let pino_step b =
+  let { name; interior } = b in
+  hole_concat_map name
+    ~f:(fun hd op tl ->
+      match op with 
+      | Pino { inner; outer } -> 
+        [{ name = hd @ outer @ tl
+        ; interior = 
+          { name = inner
+          ; interior = [] }
+          :: interior }]
+      | _ -> [])
+
 let rec step_system bs =
   (* phago step *)
   phago_step bs
@@ -75,27 +90,15 @@ let rec step_system bs =
         ~f:(fun b' -> hd @ [b'] @ tl)
         (step_brane b))
     bs
-and step_brane { name; interior } =
+
+and step_brane b =
   (* pino step *)
-  hole_concat_map
-    ~f:(fun hd op tl ->
-      match op with 
-      | Pino { inner; outer } -> 
-        [{ name = hd @ outer @ tl
-        ; interior = 
-          [{ name = inner
-          ; interior = [] }] }]
-      | _ -> [])
-    name
-  (* phago step *)
-  (* @ hole_concat_map
-    ~f:(fun hd b tl ->
-      List.ma 
-      )
-    name *)
-    
+  pino_step b
+  (* exo step *)
+  @ exo_step b
   (* recursive step *)
-  @ List.map
+  @ let { name; interior } = b in
+    List.map
     ~f:(fun interior' ->
       { name = name
       ; interior = interior' })
