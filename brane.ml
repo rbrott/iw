@@ -5,15 +5,16 @@ type system = brane list
   [@@deriving sexp]
 and brane =
   { name: action
+  (* maybe contents? *)
   ; interior: system }
   [@@deriving sexp]
 (* bitonal actions *)
 and action = op list
   [@@deriving sexp]
 and op =
-  | Phago
+  | Phago of action
   | CoPhago of { inner: action; outer: action }
-  | Exo
+  | Exo of action
   | CoExo of action
   | Pino of { inner: action; outer: action }
   [@@deriving sexp]
@@ -28,14 +29,47 @@ let hole_fold_right ~f ~init xs =
     xs
   in acc
 
-let hole_map_concat ~f =
+let hole_concat_map ~f =
   hole_fold_right
     ~f:(fun hd x tl acc ->
       f hd x tl @ acc)
     ~init:[]
 
+let phago_step bs =
+  hole_concat_map bs
+    ~f:(fun br_hd br br_tl ->
+      let { name; interior = inner_int } = br in
+      hole_concat_map name
+        ~f:(fun op_hd op op_tl ->
+          match op with
+          | Phago inner -> [
+            { name = op_hd @ inner @ op_tl
+            ; interior = inner_int }, 
+            br_hd @ br_tl]
+          | _ -> []))
+  |> List.concat_map
+    ~f:(fun (br_inner, bs') ->
+      hole_concat_map bs'
+        ~f:(fun br_hd br_outer br_tl ->
+          let { name; interior = middle_int } = br_outer in
+          hole_concat_map name
+            ~f:(fun op_hd op op_tl ->
+              match op with
+              | CoPhago { inner = middle; outer } -> 
+                [br_hd @ 
+                  [{ name = op_hd @ outer @ op_tl
+                  ; interior = 
+                    { name = middle
+                    ; interior = [br_inner] }
+                    :: middle_int }]
+                  @ br_tl]
+              | _ -> [])))
+
 let rec step_system bs =
-  hole_map_concat
+  (* phago step *)
+  phago_step bs
+  (* recursive step *)
+  @ hole_concat_map
     ~f:(fun hd b tl ->
       List.map
         ~f:(fun b' -> hd @ [b'] @ tl)
@@ -43,7 +77,7 @@ let rec step_system bs =
     bs
 and step_brane { name; interior } =
   (* pino step *)
-  hole_map_concat
+  hole_concat_map
     ~f:(fun hd op tl ->
       match op with 
       | Pino { inner; outer } -> 
@@ -53,6 +87,13 @@ and step_brane { name; interior } =
           ; interior = [] }] }]
       | _ -> [])
     name
+  (* phago step *)
+  (* @ hole_concat_map
+    ~f:(fun hd b tl ->
+      List.ma 
+      )
+    name *)
+    
   (* recursive step *)
   @ List.map
     ~f:(fun interior' ->
