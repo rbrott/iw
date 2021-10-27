@@ -17,17 +17,32 @@ and op =
   | Exo of action
   | CoExo of action
   | Pino of { inner: action; outer: action }
+  | Tag of string (* for debugging purposes *)
   [@@deriving sexp]
 
 
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
     ~f:(fun x (hd, tl, acc) ->
-      let tl' = List.tl_exn tl in
-      hd @ [x], tl', f hd x tl' acc)
-    ~init:([], xs, init)
+      let hd' = List.drop_last_exn hd in
+      hd', x :: tl, f hd' x tl acc)
+    ~init:(xs, [], init)
     xs
   in acc
+
+let%expect_test "hole fold right test" =
+  hole_fold_right
+    ~f:(fun hd x tl ys -> (hd, x, tl) :: ys)
+    ~init:[]
+    [0; 1; 2] 
+  |> List.sexp_of_t (Tuple3.sexp_of_t 
+    (List.sexp_of_t sexp_of_int)
+    sexp_of_int
+    (List.sexp_of_t sexp_of_int))
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {|
+    ((() 0 (1 2)) ((0) 1 (2)) ((0 1) 2 ())) |}]
 
 let hole_concat_map ~f =
   hole_fold_right
@@ -134,11 +149,17 @@ let print_system_eval_tree s =
 
 let%expect_test "basic pino eval" =
   print_system_eval_tree
-    [{ name = [Pino { inner = []; outer = [] }]
-    ; interior = [] }];
+    [{ name = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
+    ; interior = [{ name = [Tag "P"]; interior = [] }] }];
   [%expect {|
-    (Node (((name ((Pino (inner ()) (outer ())))) (interior ())))
-     ((Node (((name ()) (interior (((name ()) (interior ())))))) ()))) |}]
+    (Node
+     (((name ((Pino (inner ((Tag rho))) (outer ((Tag tau)))) (Tag sigma)))
+       (interior (((name ((Tag P))) (interior ()))))))
+     ((Node
+       (((name ((Tag tau) (Tag sigma)))
+         (interior
+          (((name ((Tag rho))) (interior ())) ((name ((Tag P))) (interior ()))))))
+       ()))) |}]
 
 let%expect_test "basic phago eval" =
   print_system_eval_tree
