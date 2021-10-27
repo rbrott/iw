@@ -180,6 +180,35 @@ let%expect_test "basic phago eval" =
            ((name ((Tag q1))) (interior ())) ((name ((Tag q2))) (interior ()))))))
        ()))) |}]
 
+let%expect_test "basic exo eval" =
+  print_system_eval_tree [
+    { name = [Tag "tau1"; CoExo [Tag "tau"]; Tag "tau2"]
+    ; interior = [
+      { name = [Tag "q1"]; interior = [] };
+      { name = [Tag "sigma1"; Exo [Tag "sigma"]; Tag "sigma2"]
+      ; interior = [
+        { name = [Tag "p1"]; interior = [] };
+        { name = [Tag "p2"]; interior = [] }
+      ]};
+      { name = [Tag "q2"]; interior = [] }
+    ]}];
+  [%expect {|
+    (Node
+     (((name ((Tag tau1) (CoExo ((Tag tau))) (Tag tau2)))
+       (interior
+        (((name ((Tag q1))) (interior ()))
+         ((name ((Tag sigma1) (Exo ((Tag sigma))) (Tag sigma2)))
+          (interior
+           (((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ())))))
+         ((name ((Tag q2))) (interior ()))))))
+     ((Node
+       (((name
+          ((Tag sigma1) (Tag sigma) (Tag sigma2) (Tag tau1) (Tag tau) (Tag tau2)))
+         (interior
+          (((name ((Tag q1))) (interior ())) ((name ((Tag q2))) (interior ())))))
+        ((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ())))
+       ()))) |}]
+
 let%expect_test "basic pino eval" =
   print_system_eval_tree
     [{ name = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
