@@ -65,7 +65,22 @@ let phago_step bs =
                   @ br_tl]
               | _ -> [])))
 
-let exo_step _ = []
+let exo_step b = 
+  let { name; interior } = b in 
+  hole_concat_map name
+    ~f:(fun op_hd1 op op_tl1 -> 
+      match op with
+      | CoExo outer1 ->
+        hole_concat_map interior
+          ~f:(fun br_hd br br_tl ->
+            hole_concat_map br.name
+              ~f:(fun op_hd2 op op_tl2 ->
+                match op with
+                | Exo outer2 -> 
+                  [{ name = op_hd2 @ outer2 @ op_tl2 @ op_hd1 @ outer1 @ op_tl1
+                    ; interior = br_hd @ br_tl } :: br.interior]
+                | _ -> []))
+      | _ -> [])
 
 let pino_step b =
   let { name; interior } = b in
@@ -73,11 +88,11 @@ let pino_step b =
     ~f:(fun hd op tl ->
       match op with 
       | Pino { inner; outer } -> 
-        [{ name = hd @ outer @ tl
+        [[{ name = hd @ outer @ tl
         ; interior = 
           { name = inner
           ; interior = [] }
-          :: interior }]
+          :: interior }]]
       | _ -> [])
 
 let rec step_system bs =
@@ -87,7 +102,7 @@ let rec step_system bs =
   @ hole_concat_map
     ~f:(fun hd b tl ->
       List.map
-        ~f:(fun b' -> hd @ [b'] @ tl)
+        ~f:(fun bs' -> hd @ bs' @ tl)
         (step_brane b))
     bs
 
@@ -100,8 +115,8 @@ and step_brane b =
   @ let { name; interior } = b in
     List.map
     ~f:(fun interior' ->
-      { name = name
-      ; interior = interior' })
+      [{ name = name
+      ; interior = interior' }])
     (step_system interior)
 
 type 'a tree = 
