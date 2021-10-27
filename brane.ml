@@ -1,25 +1,25 @@
 open Core
 
-(* nests of membranes *)
-type system = brane list
-  [@@deriving sexp]
-and brane =
-  { name: action
-  (* maybe contents? *)
-  ; interior: system }
-  [@@deriving sexp]
-(* bitonal actions *)
-and action = op list
+type action = 
+  { op: op
+  ; arep: bool }
   [@@deriving sexp]
 and op =
-  | Phago of action
-  | CoPhago of { inner: action; outer: action }
-  | Exo of action
-  | CoExo of action
-  | Pino of { inner: action; outer: action }
+  | Phago of action list
+  | CoPhago of { inner: action list; outer: action list }
+  | Exo of action list
+  | CoExo of action list
+  | Pino of { inner: action list; outer: action list }
   | Tag of string (* for debugging purposes *)
   [@@deriving sexp]
 
+type sys = brane list
+  [@@deriving sexp]
+and brane = 
+  { actions: action list
+  ; brep: bool
+  ; contents: sys }
+  [@@deriving sexp]
 
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
@@ -50,66 +50,79 @@ let hole_concat_map ~f =
       f hd x tl @ acc)
     ~init:[]
 
+(* brane and action residue *)
+let br_res b = if b.brep then [b] else []
+let ac_res a = if a.arep then [a] else []
+
 let phago_step bs =
+  (* produces inner branes with previous siblings *)
   hole_concat_map bs
     ~f:(fun br_hd br br_tl ->
-      let { name; interior = inner_int } = br in
-      hole_concat_map name
-        ~f:(fun op_hd op op_tl ->
-          match op with
-          | Phago inner -> [
-            { name = op_hd @ inner @ op_tl
-            ; interior = inner_int }, 
-            br_hd @ br_tl]
+      let { actions; contents = cont_inner; _ } = br in
+      hole_concat_map actions
+        ~f:(fun ac_hd ac ac_tl ->
+          match ac.op with
+          | Phago ac_inner -> [
+            { actions = ac_hd @ ac_inner @ ac_res ac @ ac_tl
+            ; brep = false
+            ; contents = cont_inner }, 
+            br_hd @ br_res br @ br_tl]
           | _ -> []))
+  (* match them with outer branes *)
   |> List.concat_map
     ~f:(fun (br_inner, bs') ->
       hole_concat_map bs'
         ~f:(fun br_hd br_outer br_tl ->
-          let { name; interior = middle_int } = br_outer in
-          hole_concat_map name
-            ~f:(fun op_hd op op_tl ->
-              match op with
-              | CoPhago { inner = middle; outer } -> 
+          let { actions; contents = cont_middle; _ } = br_outer in
+          hole_concat_map actions
+            ~f:(fun ac_hd ac ac_tl ->
+              match ac.op with
+              | CoPhago { inner = ac_middle; outer = ac_outer } -> 
                 [br_hd @ 
-                  [{ name = op_hd @ outer @ op_tl
-                  ; interior = 
-                    { name = middle
-                    ; interior = [br_inner] }
-                    :: middle_int }]
-                  @ br_tl]
+                  [{ actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
+                  ; brep = false
+                  ; contents = 
+                    { actions = ac_middle
+                    ; brep = false
+                    ; contents = [br_inner] }
+                    :: cont_middle }]
+                  @ br_res br_outer @ br_tl]
               | _ -> [])))
 
-let exo_step b = 
-  let { name; interior } = b in 
-  hole_concat_map name
-    ~f:(fun op_hd1 op op_tl1 -> 
-      match op with
-      | CoExo outer1 ->
-        hole_concat_map interior
-          ~f:(fun br_hd br br_tl ->
-            hole_concat_map br.name
-              ~f:(fun op_hd2 op op_tl2 ->
-                match op with
-                | Exo outer2 -> 
-                  [{ name = op_hd2 @ outer2 @ op_tl2 
-                    @ op_hd1 @ outer1 @ op_tl1
-                    ; interior = br_hd @ br_tl } 
-                  :: br.interior]
+let exo_step br_outer =  
+  let { actions; contents = cont_outer; _ } = br_outer in 
+  hole_concat_map actions
+    ~f:(fun ac_hd1 ac1 ac_tl1 -> 
+      match ac1.op with
+      | CoExo ac_outer1 ->
+        hole_concat_map cont_outer
+          ~f:(fun br_hd br_inner br_tl ->
+            let { actions; contents = cont_inner; _ } = br_inner in
+            hole_concat_map actions
+              ~f:(fun ac_hd2 ac2 ac_tl2 ->
+                match ac2.op with
+                | Exo ac_outer2 -> [
+                  { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
+                    @ ac_hd1 @ ac_outer1 @ ac_res ac2 @ ac_tl1
+                  ; brep = false
+                  ; contents = br_hd @ br_res br_inner @ br_tl } 
+                  :: cont_inner ]
                 | _ -> []))
       | _ -> [])
 
-let pino_step b =
-  let { name; interior } = b in
-  hole_concat_map name
-    ~f:(fun hd op tl ->
-      match op with 
-      | Pino { inner; outer } -> 
-        [[{ name = hd @ outer @ tl
-        ; interior = 
-          { name = inner
-          ; interior = [] }
-          :: interior }]]
+let pino_step br =
+  let { actions; contents; _ } = br in
+  hole_concat_map actions
+    ~f:(fun ac_hd ac ac_tl ->
+      match ac.op with 
+      | Pino { inner = ac_inner; outer = ac_outer } -> 
+        [[{ actions = ac_hd @ ac_outer @ ac_tl
+        ; brep = false
+        ; contents = 
+          { actions = ac_inner
+          ; brep = false
+          ; contents = [] }
+          :: contents }]]
       | _ -> [])
 
 let rec step_system bs =
@@ -129,12 +142,13 @@ and step_brane b =
   (* exo step *)
   @ exo_step b
   (* recursive step *)
-  @ let { name; interior } = b in
+  @ let { actions; brep; contents } = b in
     List.map
-    ~f:(fun interior' ->
-      [{ name = name
-      ; interior = interior' }])
-    (step_system interior)
+    ~f:(fun contents' ->
+      [{ actions = actions
+      ; brep = brep
+      ; contents = contents' }])
+    (step_system contents)
 
 type 'a tree = 
   | Node of 'a * 'a tree list
@@ -146,83 +160,158 @@ let rec eval_tree e n x = Node (x,
 
 let print_system_eval_tree s = 
   s |> eval_tree step_system 10
-  |> sexp_of_tree sexp_of_system
+  |> sexp_of_tree sexp_of_sys
   |> Sexp.to_string_hum |> print_endline
-
+(* 
 let%expect_test "basic phago eval" =
   print_system_eval_tree
-    [{ name = [Tag "sigma1"; Phago [Tag "sigma"]; Tag "sigma2"]; 
-      interior = 
-        [{ name = [Tag "p1"]; interior = [] };
-        { name = [Tag "p2"]; interior = [] }] };
-    { name = [Tag "tau1"; CoPhago { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "tau2"]; 
-      interior = 
-        [{ name = [Tag "q1"]; interior = [] };
-        { name = [Tag "q2"]; interior = [] }] } ];
+    [{ actions = [Tag "sigma1"; Phago [Tag "sigma"]; Tag "sigma2"]; 
+      contents = 
+        [{ actions = [Tag "p1"]; contents = [] };
+        { actions = [Tag "p2"]; contents = [] }] };
+    { actions = [Tag "tau1"; CoPhago { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "tau2"]; 
+      contents = 
+        [{ actions = [Tag "q1"]; contents = [] };
+        { actions = [Tag "q2"]; contents = [] }] } ];
   [%expect {|
     (Node
-     (((name ((Tag sigma1) (Phago ((Tag sigma))) (Tag sigma2)))
-       (interior
-        (((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ())))))
-      ((name
+     (((actions ((Tag sigma1) (Phago ((Tag sigma))) (Tag sigma2)))
+       (contents
+        (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))))
+      ((actions
         ((Tag tau1) (CoPhago (inner ((Tag rho))) (outer ((Tag tau)))) (Tag tau2)))
-       (interior
-        (((name ((Tag q1))) (interior ())) ((name ((Tag q2))) (interior ()))))))
+       (contents
+        (((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ()))))))
      ((Node
-       (((name ((Tag tau1) (Tag tau) (Tag tau2)))
-         (interior
-          (((name ((Tag rho)))
-            (interior
-             (((name ((Tag sigma1) (Tag sigma) (Tag sigma2)))
-               (interior
-                (((name ((Tag p1))) (interior ()))
-                 ((name ((Tag p2))) (interior ()))))))))
-           ((name ((Tag q1))) (interior ())) ((name ((Tag q2))) (interior ()))))))
+       (((actions ((Tag tau1) (Tag tau) (Tag tau2)))
+         (contents
+          (((actions ((Tag rho)))
+            (contents
+             (((actions ((Tag sigma1) (Tag sigma) (Tag sigma2)))
+               (contents
+                (((actions ((Tag p1))) (contents ()))
+                 ((actions ((Tag p2))) (contents ()))))))))
+           ((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ()))))))
        ()))) |}]
 
 let%expect_test "basic exo eval" =
   print_system_eval_tree [
-    { name = [Tag "tau1"; CoExo [Tag "tau"]; Tag "tau2"]
-    ; interior = [
-      { name = [Tag "q1"]; interior = [] };
-      { name = [Tag "sigma1"; Exo [Tag "sigma"]; Tag "sigma2"]
-      ; interior = [
-        { name = [Tag "p1"]; interior = [] };
-        { name = [Tag "p2"]; interior = [] }
+    { actions = [Tag "tau1"; CoExo [Tag "tau"]; Tag "tau2"]
+    ; contents = [
+      { actions = [Tag "q1"]; contents = [] };
+      { actions = [Tag "sigma1"; Exo [Tag "sigma"]; Tag "sigma2"]
+      ; contents = [
+        { actions = [Tag "p1"]; contents = [] };
+        { actions = [Tag "p2"]; contents = [] }
       ]};
-      { name = [Tag "q2"]; interior = [] }
+      { actions = [Tag "q2"]; contents = [] }
     ]}];
   [%expect {|
     (Node
-     (((name ((Tag tau1) (CoExo ((Tag tau))) (Tag tau2)))
-       (interior
-        (((name ((Tag q1))) (interior ()))
-         ((name ((Tag sigma1) (Exo ((Tag sigma))) (Tag sigma2)))
-          (interior
-           (((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ())))))
-         ((name ((Tag q2))) (interior ()))))))
+     (((actions ((Tag tau1) (CoExo ((Tag tau))) (Tag tau2)))
+       (contents
+        (((actions ((Tag q1))) (contents ()))
+         ((actions ((Tag sigma1) (Exo ((Tag sigma))) (Tag sigma2)))
+          (contents
+           (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))))
+         ((actions ((Tag q2))) (contents ()))))))
      ((Node
-       (((name
+       (((actions
           ((Tag sigma1) (Tag sigma) (Tag sigma2) (Tag tau1) (Tag tau) (Tag tau2)))
-         (interior
-          (((name ((Tag q1))) (interior ())) ((name ((Tag q2))) (interior ())))))
-        ((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ())))
+         (contents
+          (((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ())))))
+        ((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))
        ()))) |}]
 
 let%expect_test "basic pino eval" =
   print_system_eval_tree
-    [{ name = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
-    ; interior = 
-      [{ name = [Tag "p1"]; interior = [] };
-      { name = [Tag "p2"]; interior = [] }] }];
+    [{ actions = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
+    ; contents = 
+      [{ actions = [Tag "p1"]; contents = [] };
+      { actions = [Tag "p2"]; contents = [] }] }];
   [%expect {|
     (Node
-     (((name ((Pino (inner ((Tag rho))) (outer ((Tag tau)))) (Tag sigma)))
-       (interior
-        (((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ()))))))
+     (((actions ((Pino (inner ((Tag rho))) (outer ((Tag tau)))) (Tag sigma)))
+       (contents
+        (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ()))))))
      ((Node
-       (((name ((Tag tau) (Tag sigma)))
-         (interior
-          (((name ((Tag rho))) (interior ())) ((name ((Tag p1))) (interior ()))
-           ((name ((Tag p2))) (interior ()))))))
+       (((actions ((Tag tau) (Tag sigma)))
+         (contents
+          (((actions ((Tag rho))) (contents ())) ((actions ((Tag p1))) (contents ()))
+           ((actions ((Tag p2))) (contents ()))))))
        ()))) |}]
+
+let mate bs = Phago [Exo bs]
+let comate bs = CoPhago { inner = [CoExo [Exo []]]; outer = [CoExo bs] }
+
+let%expect_test "basic mate" =
+  print_system_eval_tree [
+    { actions = [mate [Tag "Left"]]; contents = [] };
+    { actions = [comate [Tag "Right"]]; contents = [] } ];
+  [%expect {|
+    (Node
+     (((actions ((Phago ((Exo ((Tag Left))))))) (contents ()))
+      ((actions
+        ((CoPhago (inner ((CoExo ((Exo ()))))) (outer ((CoExo ((Tag Right))))))))
+       (contents ())))
+     ((Node
+       (((actions ((CoExo ((Tag Right)))))
+         (contents
+          (((actions ((CoExo ((Exo ())))))
+            (contents (((actions ((Exo ((Tag Left))))) (contents ())))))))))
+       ((Node
+         (((actions ((CoExo ((Tag Right)))))
+           (contents (((actions ((Tag Left) (Exo ()))) (contents ()))))))
+         ((Node (((actions ((Tag Left) (Tag Right))) (contents ()))) ()))))))) |}]
+
+let bud bs = Phago bs
+let cobud inner outer = Pino 
+  { inner = [CoPhago { inner = inner; outer = [Exo[]] }]
+  ; outer = [CoExo outer] }
+
+let%expect_test "basic bud" =
+  print_system_eval_tree [
+    { actions = [cobud [] []]
+    ; contents = [
+      { actions = [bud []; Tag "P"]
+      ; contents = [] };
+      { actions = [Tag "Q"] 
+      ; contents = [] } ] } ];
+  [%expect {|
+    (Node
+     (((actions
+        ((Pino (inner ((CoPhago (inner ()) (outer ((Exo ()))))))
+          (outer ((CoExo ()))))))
+       (contents
+        (((actions ((Phago ()) (Tag P))) (contents ()))
+         ((actions ((Tag Q))) (contents ()))))))
+     ((Node
+       (((actions ((CoExo ())))
+         (contents
+          (((actions ((CoPhago (inner ()) (outer ((Exo ())))))) (contents ()))
+           ((actions ((Phago ()) (Tag P))) (contents ()))
+           ((actions ((Tag Q))) (contents ()))))))
+       ((Node
+         (((actions ((CoExo ())))
+           (contents
+            (((actions ((Exo ())))
+              (contents
+               (((actions ()) (contents (((actions ((Tag P))) (contents ()))))))))
+             ((actions ((Tag Q))) (contents ()))))))
+         ((Node
+           (((actions ()) (contents (((actions ((Tag Q))) (contents ())))))
+            ((actions ()) (contents (((actions ((Tag P))) (contents ()))))))
+           ()))))))) |}]
+
+(* TODO: do we need drip? *)
+
+let%expect_test "basic phago eval" =
+  print_system_eval_tree [
+    { actions = [{ op = Phago []; arep = true }]
+    ; brep = false
+    ; contents = [] };
+    { actions = [{ op = CoPhago { inner = []; outer = [] }; arep = true }]
+    ; brep = false
+    ; contents = [] }];
+  [%expect {| |}]
+ *)
