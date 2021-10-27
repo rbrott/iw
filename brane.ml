@@ -150,15 +150,19 @@ let print_system_eval_tree s =
 let%expect_test "basic pino eval" =
   print_system_eval_tree
     [{ name = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
-    ; interior = [{ name = [Tag "P"]; interior = [] }] }];
+    ; interior = 
+      [{ name = [Tag "p1"]; interior = [] };
+      { name = [Tag "p2"]; interior = [] }] }];
   [%expect {|
     (Node
      (((name ((Pino (inner ((Tag rho))) (outer ((Tag tau)))) (Tag sigma)))
-       (interior (((name ((Tag P))) (interior ()))))))
+       (interior
+        (((name ((Tag p1))) (interior ())) ((name ((Tag p2))) (interior ()))))))
      ((Node
        (((name ((Tag tau) (Tag sigma)))
          (interior
-          (((name ((Tag rho))) (interior ())) ((name ((Tag P))) (interior ()))))))
+          (((name ((Tag rho))) (interior ())) ((name ((Tag p1))) (interior ()))
+           ((name ((Tag p2))) (interior ()))))))
        ()))) |}]
 
 let%expect_test "basic phago eval" =
