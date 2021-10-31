@@ -162,6 +162,94 @@ let print_system_eval_tree s =
   s |> eval_tree step_system 10
   |> sexp_of_tree sexp_of_sys
   |> Sexp.to_string_hum |> print_endline
+
+
+type token =
+  | Id of string
+  | Dot
+  | Bang
+  | LParen
+  | RParen
+  | LBracket
+  | RBracket
+  | Comma
+  | Equal
+  | Eof
+  [@@deriving sexp]
+
+type lex_error =
+  | BadCharacter of char
+  [@@deriving sexp]
+  
+let tokens_of_string s = 
+  let tl = ref (String.to_list s) in
+  let peek () = List.hd !tl in
+  let next () = 
+    tl := 
+      match !tl with
+      | [] -> []
+      | _ :: tl' -> tl'
+  in
+  let append s c = s ^ (String.make 1 c) in
+  let rec step state tokens_rev =
+    let state', token_opt =
+      match state, peek () with
+      (* whitespace *)
+      | `Begin, Some ' ' 
+      | `Begin, Some '\n' 
+      | `Begin, Some '\r' 
+      | `Begin, Some '\t' -> next (); Ok `Begin, None
+      (* identifiers *)
+      | `Begin, Some ('A'..'Z' as c)
+      | `Begin, Some ('a'..'z' as c) -> next (); Ok (`Id (append "" c)), None
+      | `Id id, Some ('A'..'Z' as c)
+      | `Id id, Some ('a'..'z' as c)
+      | `Id id, Some ('0'..'9' as c) 
+      | `Id id, Some ('_' as c) -> next (); Ok (`Id (append id c)), None
+      | `Id id, _ -> Ok `Begin, Some (Id id)
+      (* punctuation *)
+      | `Begin, Some ',' -> next (); Ok `Begin, Some Comma
+      | `Begin, Some '.' -> next (); Ok `Begin, Some Dot
+      | `Begin, Some '!' -> next (); Ok `Begin, Some Bang
+      | `Begin, Some '=' -> next (); Ok `Begin, Some Equal
+      | `Begin, Some '(' -> next (); Ok `Begin, Some LParen
+      | `Begin, Some ')' -> next (); Ok `Begin, Some RParen
+      | `Begin, Some '[' -> next (); Ok `Begin, Some LBracket
+      | `Begin, Some ']' -> next (); Ok `Begin, Some RBracket
+      (* errors *)
+      | `Begin, Some c -> Error (BadCharacter c), None
+      (* end *)
+      | `Begin, None -> Ok `Begin, Some Eof
+    in
+    match state', token_opt with
+    (* TODO: return preceding tokens with error? *)
+    | Error err, _ -> Error err
+    | Ok state', None -> step state' tokens_rev
+    | _, Some Eof -> Ok (List.rev tokens_rev)
+    | Ok state', Some token -> step state' (token :: tokens_rev)
+  in
+  step `Begin []
+
+let print_tokens_of_string s = 
+  s
+    |> tokens_of_string 
+    |> Result.sexp_of_t (List.sexp_of_t sexp_of_token) sexp_of_lex_error
+    |> Sexp.to_string_hum
+    |> print_endline
+
+let%expect_test "lex brane" =
+  print_tokens_of_string "(!exo([]).[])[]"; 
+  [%expect {|
+    (Ok
+     (LParen Bang (Id exo) LParen LBracket RBracket RParen Dot LBracket RBracket
+      RParen LBracket RBracket)) |}] 
+
+type ast =
+  | Sys of sys
+  | LetSys of string * sys
+  | LetAction of string * action
+  [@@deriving sexp]
+
 (* 
 let%expect_test "basic phago eval" =
   print_system_eval_tree
