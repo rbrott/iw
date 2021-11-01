@@ -288,6 +288,7 @@ type parse_error =
   | ExpectedId of token
   | ExpectedOp of token
   | NoActionForId of string
+  | NoSysForId of string
   | PrematureEof
   [@@deriving sexp]
 
@@ -417,18 +418,24 @@ let sys_of_tokens tokens =
     Ok (List.concat actions)
   in
   let rec eat_brane sys_bs act_bs = 
-    let brep = eat_opt Bang in
-    let%bind () = eat LParen in  
-    let%bind actions = eat_many ~sep:Comma ~close:RParen (fun () -> eat_action act_bs) in
-    let%bind () = eat RParen in  
-    let%bind () = eat LBracket in 
-    let%bind contents = eat_many ~sep:Comma ~close:RBracket (fun () -> eat_brane sys_bs act_bs) in
-    let%bind () = eat RBracket in 
-    Ok { brep; actions = List.concat actions; contents } 
-  in
-  let eat_sys sys_bs act_bs = 
-    let%bind sys = eat_many ~sep:Comma (fun () -> eat_brane sys_bs act_bs) in 
-    Ok sys
+    match peek () with 
+    | Id sys_id -> next(); begin
+      match Map.find sys_bs sys_id with
+      | Some sys -> Ok sys 
+      | None -> Error (NoSysForId sys_id)
+      end
+    | _ -> 
+      let brep = eat_opt Bang in
+      let%bind () = eat LParen in  
+      let%bind actions = eat_actions ~close:RParen act_bs in
+      let%bind () = eat RParen in  
+      let%bind () = eat LBracket in 
+      let%bind contents = eat_sys ~close:RParen sys_bs act_bs in
+      let%bind () = eat RBracket in 
+      Ok [{ brep; actions; contents }]
+  and eat_sys ?close sys_bs act_bs = 
+    let%bind sys = eat_many ~sep:Comma ?close (fun () -> eat_brane sys_bs act_bs) in 
+    Ok (List.concat sys)
   in 
   let eat_sys_or_actions sys_bs act_bs =
     match peek () with
