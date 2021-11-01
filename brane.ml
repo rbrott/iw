@@ -164,6 +164,14 @@ let print_system_eval_tree s =
   |> Sexp.to_string_hum |> print_endline
 
 
+type op_token =
+  | PhagoTok
+  | CoPhagoTok
+  | ExoTok
+  | CoExoTok
+  | PinoTok
+  [@@deriving sexp, equal]
+
 type token =
   | Id of string
   | Dot
@@ -174,22 +182,28 @@ type token =
   | RBracket
   | Comma
   | Equal
+  | Let
+  | In
   | Eof
-  [@@deriving sexp]
+  | Op of op_token
+  [@@deriving sexp, equal]
 
 type lex_error =
   | BadCharacter of char
   [@@deriving sexp]
+
+let promote_reserved s = 
+  if String.equal s "phago" then Op PhagoTok 
+  else if String.equal s "cophago" then Op CoPhagoTok 
+  else if String.equal s "exo" then Op ExoTok
+  else if String.equal s "coexo" then Op CoExoTok
+  else if String.equal s "pino" then Op PinoTok
+  else Id s
   
 let tokens_of_string s = 
   let tl = ref (String.to_list s) in
   let peek () = List.hd !tl in
-  let next () = 
-    tl := 
-      match !tl with
-      | [] -> []
-      | _ :: tl' -> tl'
-  in
+  let next () = tl := List.tl_exn !tl in
   let append s c = s ^ (String.make 1 c) in
   let rec step state tokens_rev =
     let state', token_opt =
@@ -206,7 +220,7 @@ let tokens_of_string s =
       | `Id id, Some ('a'..'z' as c)
       | `Id id, Some ('0'..'9' as c) 
       | `Id id, Some ('_' as c) -> next (); Ok (`Id (append id c)), None
-      | `Id id, _ -> Ok `Begin, Some (Id id)
+      | `Id id, _ -> Ok `Begin, Some (promote_reserved id)
       (* punctuation *)
       | `Begin, Some ',' -> next (); Ok `Begin, Some Comma
       | `Begin, Some '.' -> next (); Ok `Begin, Some Dot
@@ -244,11 +258,159 @@ let%expect_test "lex brane" =
      (LParen Bang (Id exo) LParen LBracket RBracket RParen Dot LBracket RBracket
       RParen LBracket RBracket)) |}] 
 
-type ast =
-  | Sys of sys
-  | LetSys of string * sys
-  | LetAction of string * action
+type parse_error =
+  | BadToken of { exp: token; actual: token }
+  | ExpectedId of token
+  | ExpectedOp of token
+  | NoActionForId of string
+  | PrematureEof
   [@@deriving sexp]
+
+let exp_of_tokens tokens =
+  let open Result.Let_syntax in
+  let tl = ref tokens in
+  let peek () = Option.value (List.hd !tl) ~default:Eof in
+  let peek2 () = 
+    match !tl with
+    | _ :: x :: _ -> x
+    | _ -> Eof 
+  in
+  let next () = tl := List.tl_exn !tl in
+  let eat exp_token =
+    let actual_token = peek () in
+    if equal_token exp_token actual_token then 
+      (next (); Ok ())
+    else 
+      Error (BadToken { exp = exp_token; actual = actual_token })
+  in 
+  let eat_opt exp_token =
+    if equal_token exp_token (peek ()) 
+      then (next (); true) else false 
+  in
+  let eat_many ~sep ?close eat_item =
+    let rec eat_one () =
+      let%bind item = eat_item () in
+      if equal_token (peek ()) sep then 
+        (next ();
+        let%bind tl = eat_one () in
+        Ok (item :: tl))
+      else
+        Ok [item]
+    in
+    match close with
+    | None -> eat_one ()
+    | Some close ->
+      if equal_token (peek ()) close then
+        Ok []
+      else
+        eat_one ()
+  in
+  let eat_id () =
+    match peek () with
+    | Id s -> next (); Ok s
+    | token -> Error (ExpectedId token)
+  in
+  let rec eat_action act_bs = 
+    let arep = eat_opt Bang in 
+    match peek () with
+    | Op op_tok -> let%bind op =
+      (match op_tok with
+      | PhagoTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions act_bs in
+        let%bind () = eat RParen in
+        Ok (Phago actions)
+      | CoPhagoTok -> 
+        let%bind () = eat LParen in
+        let%bind inner = eat_actions act_bs in
+        let%bind () = eat RParen in
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind outer = eat_actions act_bs in
+        let%bind () = eat RParen in
+        Ok (CoPhago { inner; outer })
+      | ExoTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions act_bs in
+        let%bind () = eat RParen in
+        Ok (Exo actions)
+      | CoExoTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions act_bs in
+        let%bind () = eat RParen in
+        Ok (CoExo actions)
+      | PinoTok -> 
+        let%bind () = eat LParen in
+        let%bind inner = eat_actions act_bs in
+        let%bind () = eat RParen in
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind outer = eat_actions act_bs in
+        let%bind () = eat RParen in
+        Ok (Pino{ inner; outer })) in
+      Ok [{ arep; op }]
+    | Id action_id -> begin
+      match Map.find act_bs action_id with
+      | Some actions -> Ok actions
+      | None -> Error (NoActionForId action_id)
+      end
+    | token -> Error (ExpectedOp token)
+  and eat_actions act_bs = 
+    let%bind actions = eat_many
+      (fun () -> eat_action act_bs) ~sep:Comma in
+    Ok (List.concat actions)
+  in
+  let rec eat_brane sys_bs act_bs = 
+    let brep = eat_opt Bang in
+    let%bind () = eat LParen in  
+    let%bind actions = eat_many ~sep:Comma ~close:RParen (fun () -> eat_action act_bs) in
+    let%bind () = eat LBracket in 
+    let%bind contents = eat_many ~sep:Comma ~close:RBracket (fun () -> eat_brane sys_bs act_bs) in
+    Ok { brep; actions = List.concat actions; contents } 
+  in
+  let eat_sys sys_bs act_bs = 
+    let%bind sys = eat_many ~sep:Comma (fun () -> eat_brane sys_bs act_bs) in 
+    Ok sys
+  in 
+  let eat_sys_or_actions sys_bs act_bs =
+    match peek () with
+    | Eof -> Error PrematureEof
+    | Bang -> begin 
+      match peek2 () with
+      | LParen | LBracket -> 
+        let%bind sys = eat_sys sys_bs act_bs in
+        Ok (`System sys)
+      | _ -> 
+        let%bind actions = eat_actions act_bs in
+        Ok (`Actions actions)
+      end
+    | LParen | LBracket -> 
+      let%bind sys = eat_sys sys_bs act_bs in
+      Ok (`System sys)
+    | _ -> 
+      let%bind actions = eat_actions act_bs in
+      Ok (`Actions actions)
+  in
+  let rec eat_let sys_bs act_bs =
+    let%bind () = eat Let in
+    let%bind key = eat_id () in
+    let%bind () = eat Equal in
+    let%bind value = eat_sys_or_actions sys_bs act_bs in
+    let%bind () = eat In in
+    match value with
+    | `System sys -> eat_exp (Map.set sys_bs ~key ~data:sys) act_bs
+    | `Actions actions -> eat_exp sys_bs (Map.set act_bs ~key ~data:actions)
+  and eat_exp sys_bs act_bs = 
+    match peek () with
+    | Let -> eat_let sys_bs act_bs
+    | _ -> eat_sys sys_bs act_bs
+  in
+  let%bind exp = eat_exp (Map.empty (module String)) (Map.empty (module String)) in
+  let%bind () = eat Eof in 
+  Ok exp
 
 (* 
 let%expect_test "basic phago eval" =
