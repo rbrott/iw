@@ -158,6 +158,9 @@ let rec eval_tree e n x = Node (x,
   if n <= 0 then []
   else List.map ~f:(eval_tree e (n - 1)) (e x))
 
+let rec map_tree ~f = function
+  | Node (x, xs) -> Node (f x, List.map ~f:(map_tree ~f) xs)
+
 let print_system_eval_tree s = 
   s |> eval_tree step_system 10
   |> sexp_of_tree sexp_of_sys
@@ -416,10 +419,45 @@ let sys_of_tokens tokens =
   let%bind () = eat Eof in 
   Ok exp
 
-(* let print_system s = s 
-  |> sexp_of_sys
-  |> Sexp.to_string_hum 
-  |> print_endline *)
+let indent ss = ss
+  |> String.split_lines
+  |> List.map ~f:(fun s -> " " ^ s)
+  |> String.concat ~sep:"\n"
+
+let string_of_list ~sep string_of_x xs = xs
+  |> List.map ~f:string_of_x
+  |> String.concat ~sep
+
+let rec string_of_sys bs =
+  string_of_list ~sep:",\n" string_of_brane bs
+and string_of_brane b =
+  let { actions; brep; contents } = b in 
+  Printf.sprintf "%s(%s)[\n%s]" 
+    (if brep then "!" else "")
+    (actions |> string_of_actions)
+    (contents|> string_of_sys |> indent)
+and string_of_action a = 
+  let { arep; op } = a in
+  (if arep then "!" else "") ^
+  (string_of_op op)
+and string_of_actions a = string_of_list ~sep:", " string_of_action a
+and string_of_op = function
+  | Phago actions ->
+    Printf.sprintf "phago. (%s)" (string_of_actions actions)
+  | CoPhago { inner; outer } ->
+    Printf.sprintf "cophago(%s). (%s)" 
+      (string_of_actions inner)
+      (string_of_actions outer)
+  | Exo actions ->
+    Printf.sprintf "exo. (%s)" (string_of_actions actions)
+  | CoExo actions ->
+    Printf.sprintf "coexo. (%s)" (string_of_actions actions)
+  | Pino { inner; outer } ->
+    Printf.sprintf "pino(%s). (%s)" 
+      (string_of_actions inner)
+      (string_of_actions outer)
+  | Tag _ -> failwith "tag"
+
 
 type error =
   | LexError of lex_error
@@ -434,10 +472,6 @@ let sys_of_string s =
     | Error err -> Error (ParseError err)
     | Ok sys -> Ok sys)
 
-  (* let%bind tokens = tokens_of_string s in
-  let%bind sys = sys_of_tokens tokens in
-  OK sys *)
-
 let%expect_test "basic phago eval" = "let a = exo.() in let b = !coexo.() in (a, b)[]"
   |> sys_of_string
   |> Result.sexp_of_t sexp_of_sys sexp_of_error
@@ -447,6 +481,31 @@ let%expect_test "basic phago eval" = "let a = exo.() in let b = !coexo.() in (a,
     (Ok
      (((actions (((op (Exo ())) (arep false)) ((op (CoExo ())) (arep true))))
        (brep false) (contents ())))) |}]
+
+let%expect_test "basic phago eval" = 
+  let s = "let a = exo.() in let b = !coexo.() in (a, b)[]" in
+  (match sys_of_string s with
+  | Ok sys -> print_endline (string_of_sys sys)
+  | Error err -> print_endline (Sexp.to_string_hum (sexp_of_error err)));
+  [%expect{|
+    (exo. (), !coexo. ())[
+    ] |}];
+  [%expect {| |}]
+
+(* 
+(* TODO: work on this further *)
+let%expect_test "basic phago eval" = "
+let nucap = (!bud)[] in
+let virus = phago.(exo.())[nucap] in
+"
+  |> sys_of_string
+  |> Result.sexp_of_t sexp_of_sys sexp_of_error
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {|
+    (Ok
+     (((actions (((op (Exo ())) (arep false)) ((op (CoExo ())) (arep true))))
+       (brep false) (contents ())))) |}] *)
 
 (* let%expect_test "basic phago eval" = "let a = exo.() in (a)[]"
   |> tokens_of_string

@@ -1,10 +1,8 @@
-Syntax for examples
-Lazy name unfolding (vs. "metaprogramming")
-
 Virus membrane example
 
+Lazy name unfolding (vs. "metaprogramming")
+
 Evaluation tree graph output
-Pretty-print AST
 
 User-defined actions
 Stdlib w/derived actions
