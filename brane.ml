@@ -21,6 +21,18 @@ and brane =
   ; contents: sys }
   [@@deriving sexp]
 
+
+let mate bs = Phago [{ arep = false; op = Exo bs }]
+let comate bs = CoPhago { 
+  inner = [{ arep = false; op = CoExo [{ arep = false; op = Exo [] }] }]; 
+  outer = [{ arep = false; op = CoExo bs }] }
+
+let bud bs = Phago bs
+let cobud inner outer = Pino {
+  inner = [{ arep = false; op = CoPhago { 
+    inner = inner; outer = [{ arep = false; op = Exo[] }] }}];
+  outer = [{ arep = false; op = CoExo outer}] }
+
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
     ~f:(fun x (hd, tl, acc) ->
@@ -173,6 +185,10 @@ type op_token =
   | ExoTok
   | CoExoTok
   | PinoTok
+  | MateTok
+  | CoMateTok
+  | BudTok
+  | CoBudTok
   [@@deriving sexp, equal]
 
 type token =
@@ -203,6 +219,10 @@ let promote_reserved s =
   else if String.equal s "exo" then Op ExoTok
   else if String.equal s "coexo" then Op CoExoTok
   else if String.equal s "pino" then Op PinoTok
+  else if String.equal s "mate" then Op MateTok
+  else if String.equal s "comate" then Op CoMateTok
+  else if String.equal s "bud" then Op BudTok
+  else if String.equal s "cobud" then Op CoBudTok 
   else Id s
   
 let tokens_of_string s = 
@@ -355,7 +375,35 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (Pino{ inner; outer })) in
+        Ok (Pino{ inner; outer })
+      | MateTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (mate actions)
+      | CoMateTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (comate actions)
+      | BudTok -> 
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind actions = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (bud actions)
+      | CoBudTok -> 
+        let%bind () = eat LParen in
+        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind outer = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (cobud inner outer)) 
+      in
       Ok [{ arep; op }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
@@ -472,23 +520,25 @@ let sys_of_string s =
     | Error err -> Error (ParseError err)
     | Ok sys -> Ok sys)
 
-let%expect_test "basic phago eval" = "let a = exo.() in let b = !coexo.() in (a, b)[]"
+let%expect_test "basic phago eval" = "let a = mate.() in let b = !coexo.() in (a, b)[]"
   |> sys_of_string
   |> Result.sexp_of_t sexp_of_sys sexp_of_error
   |> Sexp.to_string_hum
   |> print_endline;
   [%expect {|
     (Ok
-     (((actions (((op (Exo ())) (arep false)) ((op (CoExo ())) (arep true))))
+     (((actions
+        (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
+         ((op (CoExo ())) (arep true))))
        (brep false) (contents ())))) |}]
 
 let%expect_test "basic phago eval" = 
-  let s = "let a = exo.() in let b = !coexo.() in (a, b)[]" in
+  let s = "let a = mate.() in let b = !coexo.() in (a, b)[]" in
   (match sys_of_string s with
   | Ok sys -> print_endline (string_of_sys sys)
   | Error err -> print_endline (Sexp.to_string_hum (sexp_of_error err)));
   [%expect{|
-    (exo. (), !coexo. ())[
+    (phago. (exo. ()), !coexo. ())[
     ] |}];
   [%expect {| |}]
 
@@ -597,9 +647,6 @@ let%expect_test "basic pino eval" =
            ((actions ((Tag p2))) (contents ()))))))
        ()))) |}]
 
-let mate bs = Phago [Exo bs]
-let comate bs = CoPhago { inner = [CoExo [Exo []]]; outer = [CoExo bs] }
-
 let%expect_test "basic mate" =
   print_system_eval_tree [
     { actions = [mate [Tag "Left"]]; contents = [] };
@@ -619,11 +666,6 @@ let%expect_test "basic mate" =
          (((actions ((CoExo ((Tag Right)))))
            (contents (((actions ((Tag Left) (Exo ()))) (contents ()))))))
          ((Node (((actions ((Tag Left) (Tag Right))) (contents ()))) ()))))))) |}]
-
-let bud bs = Phago bs
-let cobud inner outer = Pino 
-  { inner = [CoPhago { inner = inner; outer = [Exo[]] }]
-  ; outer = [CoExo outer] }
 
 let%expect_test "basic bud" =
   print_system_eval_tree [
