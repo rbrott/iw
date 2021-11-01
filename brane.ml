@@ -193,7 +193,9 @@ type lex_error =
   [@@deriving sexp]
 
 let promote_reserved s = 
-  if String.equal s "phago" then Op PhagoTok 
+  if String.equal s "let" then Let
+  else if String.equal s "in" then In
+  else if String.equal s "phago" then Op PhagoTok 
   else if String.equal s "cophago" then Op CoPhagoTok 
   else if String.equal s "exo" then Op ExoTok
   else if String.equal s "coexo" then Op CoExoTok
@@ -255,8 +257,8 @@ let%expect_test "lex brane" =
   print_tokens_of_string "(!exo([]).[])[]"; 
   [%expect {|
     (Ok
-     (LParen Bang (Id exo) LParen LBracket RBracket RParen Dot LBracket RBracket
-      RParen LBracket RBracket)) |}] 
+     (LParen Bang (Op ExoTok) LParen LBracket RBracket RParen Dot LBracket
+      RBracket RParen LBracket RBracket)) |}] 
 
 type parse_error =
   | BadToken of { exp: token; actual: token }
@@ -266,7 +268,7 @@ type parse_error =
   | PrematureEof
   [@@deriving sexp]
 
-let exp_of_tokens tokens =
+let sys_of_tokens tokens =
   let open Result.Let_syntax in
   let tl = ref tokens in
   let peek () = Option.value (List.hd !tl) ~default:Eof in
@@ -275,7 +277,7 @@ let exp_of_tokens tokens =
     | _ :: x :: _ -> x
     | _ -> Eof 
   in
-  let next () = tl := List.tl_exn !tl in
+  let next () = tl := Option.value (List.tl !tl) ~default:[] in
   let eat exp_token =
     let actual_token = peek () in
     if equal_token exp_token actual_token then 
@@ -313,62 +315,64 @@ let exp_of_tokens tokens =
   let rec eat_action act_bs = 
     let arep = eat_opt Bang in 
     match peek () with
-    | Op op_tok -> let%bind op =
+    | Op op_tok -> next(); let%bind op =
       (match op_tok with
       | PhagoTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind actions = eat_actions act_bs in
+        let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (Phago actions)
       | CoPhagoTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions act_bs in
+        let%bind inner = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind outer = eat_actions act_bs in
+        let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (CoPhago { inner; outer })
       | ExoTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind actions = eat_actions act_bs in
+        let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (Exo actions)
       | CoExoTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind actions = eat_actions act_bs in
+        let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (CoExo actions)
       | PinoTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions act_bs in
+        let%bind inner = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind outer = eat_actions act_bs in
+        let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (Pino{ inner; outer })) in
       Ok [{ arep; op }]
-    | Id action_id -> begin
+    | Id action_id -> next(); begin
       match Map.find act_bs action_id with
       | Some actions -> Ok actions
       | None -> Error (NoActionForId action_id)
       end
     | token -> Error (ExpectedOp token)
-  and eat_actions act_bs = 
+  and eat_actions ?close act_bs = 
     let%bind actions = eat_many
-      (fun () -> eat_action act_bs) ~sep:Comma in
+      (fun () -> eat_action act_bs) ~sep:Comma ?close in
     Ok (List.concat actions)
   in
   let rec eat_brane sys_bs act_bs = 
     let brep = eat_opt Bang in
     let%bind () = eat LParen in  
     let%bind actions = eat_many ~sep:Comma ~close:RParen (fun () -> eat_action act_bs) in
+    let%bind () = eat RParen in  
     let%bind () = eat LBracket in 
     let%bind contents = eat_many ~sep:Comma ~close:RBracket (fun () -> eat_brane sys_bs act_bs) in
+    let%bind () = eat RBracket in 
     Ok { brep; actions = List.concat actions; contents } 
   in
   let eat_sys sys_bs act_bs = 
@@ -411,6 +415,49 @@ let exp_of_tokens tokens =
   let%bind exp = eat_exp (Map.empty (module String)) (Map.empty (module String)) in
   let%bind () = eat Eof in 
   Ok exp
+
+(* let print_system s = s 
+  |> sexp_of_sys
+  |> Sexp.to_string_hum 
+  |> print_endline *)
+
+type error =
+  | LexError of lex_error
+  | ParseError of parse_error
+  [@@deriving sexp]
+
+let sys_of_string s = 
+  match tokens_of_string s with 
+  | Error err -> Error (LexError err)
+  | Ok tokens ->
+    (match sys_of_tokens tokens with
+    | Error err -> Error (ParseError err)
+    | Ok sys -> Ok sys)
+
+  (* let%bind tokens = tokens_of_string s in
+  let%bind sys = sys_of_tokens tokens in
+  OK sys *)
+
+let%expect_test "basic phago eval" = "let a = exo.() in let b = !coexo.() in (a, b)[]"
+  |> sys_of_string
+  |> Result.sexp_of_t sexp_of_sys sexp_of_error
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {|
+    (Ok
+     (((actions (((op (Exo ())) (arep false)) ((op (CoExo ())) (arep true))))
+       (brep false) (contents ())))) |}]
+
+(* let%expect_test "basic phago eval" = "let a = exo.() in (a)[]"
+  |> tokens_of_string
+  |> Result.sexp_of_t (List.sexp_of_t sexp_of_token) sexp_of_lex_error
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {|
+    (Ok
+     (Let (Id a) Equal (Op ExoTok) Dot LParen RParen In LParen (Id a) RParen
+      LBracket RBracket)) |}] *)
+  
 
 (* 
 let%expect_test "basic phago eval" =
