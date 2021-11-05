@@ -98,7 +98,7 @@ let phago_step bs =
                     ; brep = false
                     ; contents = [br_inner] }
                     :: cont_middle }]
-                  @ br_res br_outer @ br_tl]
+                  @ br_res br_inner @ br_res br_outer @ br_tl]
               | _ -> [])))
 
 let exo_step br_outer =  
@@ -115,7 +115,7 @@ let exo_step br_outer =
                 match ac2.op with
                 | Exo ac_outer2 -> [
                   { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
-                    @ ac_hd1 @ ac_outer1 @ ac_res ac2 @ ac_tl1
+                    @ ac_hd1 @ ac_outer1 @ ac_res ac1 @ ac_tl1
                   ; brep = false
                   ; contents = br_hd @ br_res br_inner @ br_tl } 
                   :: cont_inner ]
@@ -128,7 +128,8 @@ let pino_step br =
     ~f:(fun ac_hd ac ac_tl ->
       match ac.op with 
       | Pino { inner = ac_inner; outer = ac_outer } -> 
-        [[{ actions = ac_hd @ ac_outer @ ac_tl
+        [(br_res br) @
+        [{ actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
         ; brep = false
         ; contents = 
           { actions = ac_inner
@@ -555,12 +556,12 @@ let%expect_test "let parser test" =
     (phago.(exo.()), !coexo.())[] |}];
   [%expect {| |}]
 
-let print_one_execution s = s
+let print_one_execution ?n s = s
   |> sys_of_string 
   |> Result.map_error 
     ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
   |> Result.ok_or_failwith
-  |> eval_tree step_system 10
+  |> eval_tree step_system (Option.value ~default:10 n) 
   |> left_side
   |> List.map ~f:(string_of_sys)
   |> List.iter ~f:(fun x -> Printf.printf "%s\n\n" x)
@@ -605,15 +606,24 @@ let%expect_test "basic exo" = print_one_execution "
     (!coexo.())[
      (!exo.())[]]
 
-    (!exo.(), !exo.())[] |}]
+    (!exo.(), !coexo.())[] |}]
 
-let%expect_test "basic pino" = print_one_execution "
+let%expect_test "basic pino" = print_one_execution ~n:3 "
 (!pino().())[]
 ";
   [%expect {|
     (!pino().())[]
 
-    ()[
+    (!pino().())[
+     ()[]]
+
+    (!pino().())[
+     ()[],
+     ()[]]
+
+    (!pino().())[
+     ()[],
+     ()[],
      ()[]] |}]
 
 (* 
