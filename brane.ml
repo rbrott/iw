@@ -487,10 +487,11 @@ let rec string_of_sys bs =
   string_of_list ~sep:",\n" string_of_brane bs
 and string_of_brane b =
   let { actions; brep; contents } = b in 
-  Printf.sprintf "%s(%s)[\n%s]" 
+  let s = contents |> string_of_sys |> indent in
+  Printf.sprintf "%s(%s)[%s]" 
     (if brep then "!" else "")
     (actions |> string_of_actions)
-    (contents|> string_of_sys |> indent)
+    (if String.is_empty s then "" else "\n" ^ s)
 and string_of_action a = 
   let { arep; op } = a in
   (if arep then "!" else "") ^
@@ -511,7 +512,7 @@ and string_of_op = function
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
-  | Tag _ -> failwith "tag"
+  | Tag _ -> failwith ""
 
 
 type error =
@@ -535,7 +536,7 @@ let rec left_side = function
   | Node (x, []) -> [x]
   | Node (x, hd :: _) -> x :: left_side hd
 
-let%expect_test "basic phago eval" = "let a = mate.() in let b = !coexo.() in (a, b)[]"
+let%expect_test "let lexer test" = "let a = mate.() in let b = !coexo.() in (a, b)[]"
   |> sys_of_string
   |> Result.sexp_of_t sexp_of_sys sexp_of_error
   |> Sexp.to_string_hum
@@ -547,15 +548,24 @@ let%expect_test "basic phago eval" = "let a = mate.() in let b = !coexo.() in (a
          ((op (CoExo ())) (arep true))))
        (brep false) (contents ())))) |}]
 
-let%expect_test "basic phago eval" = 
+let%expect_test "let parser test" = 
   let s = "let a = mate.() in let b = !coexo.() in (a, b)[]" in
   print_parse_result (sys_of_string s);
   [%expect{|
-    (phago.(exo.()), !coexo.())[
-    ] |}];
+    (phago.(exo.()), !coexo.())[] |}];
   [%expect {| |}]
 
-let%expect_test "basic phago eval" = "
+let print_one_execution s = s
+  |> sys_of_string 
+  |> Result.map_error 
+    ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
+  |> Result.ok_or_failwith
+  |> eval_tree step_system 10
+  |> left_side
+  |> List.map ~f:(string_of_sys)
+  |> List.iter ~f:(fun x -> Printf.printf "%s\n\n" x)
+
+let%expect_test "molecular virus example" = print_one_execution "
 let nucap = (!bud.())[] in
 let virus = (phago.(exo.()))[nucap] in
 let membrane = !cophago(). (mate. ()), !coexo. () in
@@ -564,44 +574,47 @@ let cell = (membrane)[cytosol] in
 let viral_envelope = cobud(phago.(exo.())).() in
 let envelope_vesicle = (exo.(viral_envelope))[] in
 virus, cell
-"
-  |> sys_of_string 
-  |> Result.map_error 
-    ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
-  |> Result.ok_or_failwith
-  |> eval_tree step_system 10
-  |> left_side
-  |> List.map ~f:(string_of_sys)
-  (* |> map_tree ~f:(string_of_sys)
-  |> sexp_of_tree String.sexp_of_t *)
-  (* |> Sexp.to_string_hum *)
-  |> List.iter ~f:(fun x -> print_endline x; print_endline "");
+";
   [%expect {|
     (phago.(exo.()))[
-     (!phago.())[
-     ]],
+     (!phago.())[]],
     (!cophago().(phago.(exo.())), !coexo.())[
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-     ]]
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]]
 
     (phago.(exo.()), !cophago().(phago.(exo.())), !coexo.())[
      ()[
       (exo.())[
-       (!phago.())[
-       ]]],
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-     ]] |}]
+       (!phago.())[]]],
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]] |}]
 
-(* let%expect_test "basic phago eval" = "let a = exo.() in (a)[]"
-  |> tokens_of_string
-  |> Result.sexp_of_t (List.sexp_of_t sexp_of_token) sexp_of_lex_error
-  |> Sexp.to_string_hum
-  |> print_endline;
+let%expect_test "basic phago" = print_one_execution "
+(!phago.())[], (!cophago().())[]
+";
   [%expect {|
-    (Ok
-     (Let (Id a) Equal (Op ExoTok) Dot LParen RParen In LParen (Id a) RParen
-      LBracket RBracket)) |}] *)
-  
+    (!phago.())[],
+    (!cophago().())[]
+
+    (!cophago().())[
+     ()[
+      (!phago.())[]]] |}]
+
+let%expect_test "basic exo" = print_one_execution "
+(!coexo.())[(!exo.())[]]
+";
+  [%expect {|
+    (!coexo.())[
+     (!exo.())[]]
+
+    (!exo.(), !exo.())[] |}]
+
+let%expect_test "basic pino" = print_one_execution "
+(!pino().())[]
+";
+  [%expect {|
+    (!pino().())[]
+
+    ()[
+     ()[]] |}]
 
 (* 
 let%expect_test "basic phago eval" =

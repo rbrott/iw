@@ -1,6 +1,7 @@
-Brane bindings
+Molecule system
+Plant vacuole
 
-Virus membrane example
+Virus molecule example
 
 Lazy name unfolding (vs. "metaprogramming")
 
@@ -8,3 +9,9 @@ Evaluation tree graph output
 
 User-defined actions
 Stdlib w/derived actions
+
+Errors that refer back to concrete syntax.
+Syntax sugar for empty forms.
+
+Come up with a name and an extension.
+Don't clutter source with bigger examples.
