@@ -1,15 +1,22 @@
 open Core
 
+type molecule = string
+  [@@deriving sexp]
 type action = 
   { op: op
   ; arep: bool }
   [@@deriving sexp]
 and op =
+  (* brane interactions *)
   | Phago of action list
   | CoPhago of { inner: action list; outer: action list }
   | Exo of action list
   | CoExo of action list
   | Pino of { inner: action list; outer: action list }
+  (* molecule interactions *)
+  | BindRelease of 
+    { bind_out: molecule list; bind_in: molecule list
+    ; release_out: molecule list; release_in: molecule list }
   [@@deriving sexp]
 
 type sys = sys_elt list
@@ -219,6 +226,7 @@ type token =
   | Equal
   | Let
   | In
+  | RArrow
   | Eof
   | Op of op_token
   [@@deriving sexp, equal]
@@ -266,7 +274,9 @@ let tokens_of_string s =
       | `Begin, Some ',' -> next (); Ok `Begin, Some Comma
       | `Begin, Some '.' -> next (); Ok `Begin, Some Dot
       | `Begin, Some '!' -> next (); Ok `Begin, Some Bang
-      | `Begin, Some '=' -> next (); Ok `Begin, Some Equal
+      | `Begin, Some '=' -> next (); Ok `Equal, None
+      | `Equal, Some '>' -> next (); Ok `Begin, Some RArrow
+      | `Equal, _ -> Ok `Begin, Some Equal
       | `Begin, Some '(' -> next (); Ok `Begin, Some LParen
       | `Begin, Some ')' -> next (); Ok `Begin, Some RParen
       | `Begin, Some '[' -> next (); Ok `Begin, Some LBracket
@@ -427,7 +437,26 @@ let sys_of_tokens tokens =
       | Some actions -> Ok actions
       | None -> Error (NoActionForId action_id)
       end
+    | LParen -> next();
+      let%bind bind_out = eat_molecules ~close:RParen in
+      let%bind () = eat RParen in
+      let%bind () = eat Dot in
+      let%bind () = eat LParen in
+      let%bind bind_in = eat_molecules ~close:RParen in
+      let%bind () = eat RParen in
+      let%bind () = eat RArrow in
+      let%bind () = eat LParen in
+      let%bind release_out = eat_molecules ~close:RParen in
+      let%bind () = eat RParen in
+      let%bind () = eat Dot in
+      let%bind () = eat LParen in
+      let%bind release_in = eat_molecules ~close:RParen in
+      let%bind () = eat RParen in
+      Ok [{ arep; op = BindRelease { 
+        bind_out; bind_in; release_out; release_in }}]
     | token -> Error (ExpectedOp token)
+  and eat_molecules ~close = 
+    eat_many ~sep:Comma ~close eat_id
   and eat_actions ?close act_bs = 
     let%bind actions = eat_many
       (fun () -> eat_action act_bs) ~sep:Comma ?close in
@@ -534,6 +563,12 @@ and string_of_op = function
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
+  | BindRelease { bind_out; bind_in; release_out; release_in } ->
+    Printf.sprintf "(%s).(%s)=>(%s).(%s)"
+      (string_of_list ~sep:", " String.to_string bind_out)
+      (string_of_list ~sep:", " String.to_string bind_in)
+      (string_of_list ~sep:", " String.to_string release_out)
+      (string_of_list ~sep:", " String.to_string release_in)
 
 
 type error =
