@@ -10,10 +10,13 @@ and op =
   | Exo of action list
   | CoExo of action list
   | Pino of { inner: action list; outer: action list }
-  | Tag of string (* for debugging purposes *)
   [@@deriving sexp]
 
-type sys = brane list
+type sys = sys_elt list
+  [@@deriving sexp]
+and sys_elt =
+  | Brane of brane
+  | Molecule of string
   [@@deriving sexp]
 and brane = 
   { actions: action list
@@ -63,43 +66,49 @@ let hole_concat_map ~f =
     ~init:[]
 
 (* brane and action residue *)
-let br_res b = if b.brep then [b] else []
+let br_res b = if b.brep then [Brane b] else []
 let ac_res a = if a.arep then [a] else []
 
 let phago_step bs =
   (* produces inner branes with previous siblings *)
   hole_concat_map bs
-    ~f:(fun br_hd br br_tl ->
-      let { actions; contents = cont_inner; _ } = br in
-      hole_concat_map actions
-        ~f:(fun ac_hd ac ac_tl ->
-          match ac.op with
-          | Phago ac_inner -> [
-            { actions = ac_hd @ ac_inner @ ac_res ac @ ac_tl
-            ; brep = false
-            ; contents = cont_inner }, 
-            br_hd @ br_res br @ br_tl]
-          | _ -> []))
+    ~f:(fun sys_hd x sys_tl ->
+      match x with
+      | Molecule _ -> []
+      | Brane br ->
+        let { actions; contents = cont_inner; _ } = br in
+        hole_concat_map actions
+          ~f:(fun ac_hd ac ac_tl ->
+            match ac.op with
+            | Phago ac_inner -> [
+              { actions = ac_hd @ ac_inner @ ac_res ac @ ac_tl
+              ; brep = false
+              ; contents = cont_inner }, 
+              sys_hd @ br_res br @ sys_tl]
+            | _ -> []))
   (* match them with outer branes *)
   |> List.concat_map
     ~f:(fun (br_inner, bs') ->
       hole_concat_map bs'
-        ~f:(fun br_hd br_outer br_tl ->
-          let { actions; contents = cont_middle; _ } = br_outer in
-          hole_concat_map actions
-            ~f:(fun ac_hd ac ac_tl ->
-              match ac.op with
-              | CoPhago { inner = ac_middle; outer = ac_outer } -> 
-                [br_hd @ 
-                  [{ actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
-                  ; brep = false
-                  ; contents = 
-                    { actions = ac_middle
+        ~f:(fun sys_hd outer sys_tl ->
+          match outer with 
+          | Molecule _ -> []
+          | Brane br_outer -> 
+            let { actions; contents = cont_middle; _ } = br_outer in
+            hole_concat_map actions
+              ~f:(fun ac_hd ac ac_tl ->
+                match ac.op with
+                | CoPhago { inner = ac_middle; outer = ac_outer } -> 
+                  [sys_hd @ 
+                    [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
                     ; brep = false
-                    ; contents = [br_inner] }
-                    :: cont_middle }]
-                  @ br_res br_inner @ br_res br_outer @ br_tl]
-              | _ -> [])))
+                    ; contents = 
+                      Brane { actions = ac_middle
+                      ; brep = false
+                      ; contents = [Brane br_inner] }
+                      :: cont_middle }]
+                    @ br_res br_inner @ br_res br_outer @ sys_tl]
+                | _ -> [])))
 
 let exo_step br_outer =  
   let { actions; contents = cont_outer; _ } = br_outer in 
@@ -108,18 +117,21 @@ let exo_step br_outer =
       match ac1.op with
       | CoExo ac_outer1 ->
         hole_concat_map cont_outer
-          ~f:(fun br_hd br_inner br_tl ->
-            let { actions; contents = cont_inner; _ } = br_inner in
-            hole_concat_map actions
-              ~f:(fun ac_hd2 ac2 ac_tl2 ->
-                match ac2.op with
-                | Exo ac_outer2 -> [
-                  { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
-                    @ ac_hd1 @ ac_outer1 @ ac_res ac1 @ ac_tl1
-                  ; brep = false
-                  ; contents = br_hd @ br_res br_inner @ br_tl } 
-                  :: cont_inner ]
-                | _ -> []))
+          ~f:(fun br_hd inner br_tl ->
+            match inner with
+            | Molecule _ -> []
+            | Brane br_inner ->
+              let { actions; contents = cont_inner; _ } = br_inner in
+              hole_concat_map actions
+                ~f:(fun ac_hd2 ac2 ac_tl2 ->
+                  match ac2.op with
+                  | Exo ac_outer2 -> [
+                    Brane { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
+                      @ ac_hd1 @ ac_outer1 @ ac_res ac1 @ ac_tl1
+                    ; brep = false
+                    ; contents = br_hd @ br_res br_inner @ br_tl } 
+                    :: cont_inner ]
+                  | _ -> []))
       | _ -> [])
 
 let pino_step br =
@@ -129,10 +141,10 @@ let pino_step br =
       match ac.op with 
       | Pino { inner = ac_inner; outer = ac_outer } -> 
         [(br_res br) @
-        [{ actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
+        [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
         ; brep = false
         ; contents = 
-          { actions = ac_inner
+          Brane { actions = ac_inner
           ; brep = false
           ; contents = [] }
           :: contents }]]
@@ -143,10 +155,13 @@ let rec step_system bs =
   phago_step bs
   (* recursive step *)
   @ hole_concat_map
-    ~f:(fun hd b tl ->
-      List.map
-        ~f:(fun bs' -> hd @ bs' @ tl)
-        (step_brane b))
+    ~f:(fun hd x tl ->
+      match x with
+      | Molecule _ -> [hd @ [x] @ tl]
+      | Brane b -> List.map
+          ~f:(fun bs' -> hd @ 
+            bs' @ tl)
+          (step_brane b))
     bs
 
 and step_brane b =
@@ -158,7 +173,7 @@ and step_brane b =
   @ let { actions; brep; contents } = b in
     List.map
     ~f:(fun contents' ->
-      [{ actions = actions
+      [Brane { actions = actions
       ; brep = brep
       ; contents = contents' }])
     (step_system contents)
@@ -433,9 +448,11 @@ let sys_of_tokens tokens =
       let%bind () = eat LBracket in 
       let%bind contents = eat_sys ~close:RBracket sys_bs act_bs in
       let%bind () = eat RBracket in 
-      Ok [{ brep; actions; contents }]
+      Ok [Brane { brep; actions; contents }]
   and eat_sys ?close sys_bs act_bs = 
-    let%bind sys = eat_many ~sep:Comma ?close (fun () -> eat_brane sys_bs act_bs) in 
+    let%bind sys = eat_many ~sep:Comma ?close 
+      (fun () -> eat_brane sys_bs act_bs)
+    in 
     Ok (List.concat sys)
   in 
   let eat_sys_or_actions sys_bs act_bs =
@@ -484,8 +501,12 @@ let string_of_list ~sep string_of_x xs = xs
   |> List.map ~f:string_of_x
   |> String.concat ~sep
 
-let rec string_of_sys bs =
-  string_of_list ~sep:",\n" string_of_brane bs
+let rec string_of_sys sys =
+  string_of_list ~sep:",\n" 
+    (function
+    | Molecule _ -> ":?"
+    | Brane b -> string_of_brane b)
+    sys
 and string_of_brane b =
   let { actions; brep; contents } = b in 
   let s = contents |> string_of_sys |> indent in
@@ -513,7 +534,6 @@ and string_of_op = function
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
-  | Tag _ -> failwith ""
 
 
 type error =
@@ -544,10 +564,11 @@ let%expect_test "let lexer test" = "let a = mate.() in let b = !coexo.() in (a, 
   |> print_endline;
   [%expect {|
     (Ok
-     (((actions
-        (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
-         ((op (CoExo ())) (arep true))))
-       (brep false) (contents ())))) |}]
+     ((Brane
+       ((actions
+         (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
+          ((op (CoExo ())) (arep true))))
+        (brep false) (contents ()))))) |}]
 
 let%expect_test "let parser test" = 
   let s = "let a = mate.() in let b = !coexo.() in (a, b)[]" in
