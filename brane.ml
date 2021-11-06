@@ -786,7 +786,7 @@ let%expect_test "basic bind release" = print_one_execution "
 (exch()(:a)=>()(:b).())[:a]
 ";
   [%expect {|
-    (()(:a)=>()(:b).())[
+    (exch()(:a)=>()(:b).())[
      :a]
 
     ()[
@@ -797,21 +797,21 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
   (!exch()()=>(:a)().())[]]
 ";
   [%expect{|
-    (()(:a)=>(:b)().())[
-     (!()()=>(:a)().())[]]
+    (exch()(:a)=>(:b)().())[
+     (!exch()()=>(:a)().())[]]
 
-    (()(:a)=>(:b)().())[
+    (exch()(:a)=>(:b)().())[
      :a,
-     (!()()=>(:a)().())[]]
+     (!exch()()=>(:a)().())[]]
 
     :b,
     ()[
-     (!()()=>(:a)().())[]]
+     (!exch()()=>(:a)().())[]]
 
     :b,
     ()[
      :a,
-     (!()()=>(:a)().())[]] |}]
+     (!exch()()=>(:a)().())[]] |}]
 
 (*
 
@@ -819,12 +819,29 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
 
 let%expect_test "plant vacuole" = print_one_execution "
 let proton_pump = !exch(:atp)()=>(:adp, :p)(:hplus, :hminus).() in 
-let ion_channel = !exch(:cl)(:hplus)=>()(:hplus, :cl).() in
-let proton_antiporter = !exch(:na)(:hplus)=>(:hplus)(:naplus).() in 
+let ion_channel = !exch(:clminus)(:hplus)=>()(:hplus, :clminus).() in
+let proton_antiporter = !exch(:naplus)(:hplus)=>(:hplus)(:naplus).() in 
 let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
-plant_vacuole
+plant_vacuole, :atp, :clminus
 ";
-  [%expect {| (!(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !(:cl)(:hplus)=>()(:hplus, :cl).(), !(:na)(:hplus)=>(:hplus)(:naplus).())[] |}]
+  [%expect {|
+    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[],
+    :atp,
+    :clminus
+
+    :adp,
+    :p,
+    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[
+     :hplus,
+     :hminus],
+    :clminus
+
+    :adp,
+    :p,
+    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[
+     :hplus,
+     :clminus,
+     :hminus] |}]
 
 (* 
 let%expect_test "basic phago eval" =
