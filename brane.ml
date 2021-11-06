@@ -283,6 +283,7 @@ type op_token =
   | CoMateTok
   | BudTok
   | CoBudTok
+  | BindReleaseTok
   [@@deriving sexp, equal]
 
 type token =
@@ -319,6 +320,7 @@ let promote_reserved s =
   else if String.equal s "comate" then Op CoMateTok
   else if String.equal s "bud" then Op BudTok
   else if String.equal s "cobud" then Op CoBudTok 
+  else if String.equal s "exch" then Op BindReleaseTok
   else Id s
   
 let tokens_of_string s = 
@@ -502,33 +504,33 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (cobud inner outer)) 
-      in
-      Ok [{ arep; op }]
+        Ok (cobud inner outer)
+      | BindReleaseTok ->
+        let%bind () = eat LParen in
+        let%bind bind_out = eat_molecules ~close:RParen in
+        let%bind () = eat RParen in
+        let%bind () = eat LParen in
+        let%bind bind_in = eat_molecules ~close:RParen in
+        let%bind () = eat RParen in
+        let%bind () = eat RArrow in
+        let%bind () = eat LParen in
+        let%bind release_out = eat_molecules ~close:RParen in
+        let%bind () = eat RParen in
+        let%bind () = eat LParen in
+        let%bind release_in = eat_molecules ~close:RParen in
+        let%bind () = eat RParen in
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind arg = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (BindRelease { 
+          bind_out; bind_in; release_out; release_in; arg }))
+      in Ok [{ arep; op }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
       | Some actions -> Ok actions
       | None -> Error (NoActionForId action_id)
       end
-    | LParen -> next();
-      let%bind bind_out = eat_molecules ~close:RParen in
-      let%bind () = eat RParen in
-      let%bind () = eat LParen in
-      let%bind bind_in = eat_molecules ~close:RParen in
-      let%bind () = eat RParen in
-      let%bind () = eat RArrow in
-      let%bind () = eat LParen in
-      let%bind release_out = eat_molecules ~close:RParen in
-      let%bind () = eat RParen in
-      let%bind () = eat LParen in
-      let%bind release_in = eat_molecules ~close:RParen in
-      let%bind () = eat RParen in
-      let%bind () = eat Dot in
-      let%bind () = eat LParen in
-      let%bind arg = eat_actions ~close:RParen act_bs in
-      let%bind () = eat RParen in
-      Ok [{ arep; op = BindRelease { 
-        bind_out; bind_in; release_out; release_in; arg }}]
     | token -> Error (ExpectedOp token)
   and eat_molecule () = 
     let%bind () = eat Colon in
@@ -633,6 +635,7 @@ and string_of_action a =
   (if arep then "!" else "") ^
   (string_of_op op)
 and string_of_actions a = string_of_list ~sep:", " string_of_action a
+(* TODO: is there a better way to keep this in sync with the parser? *)
 and string_of_op = function
   | Phago actions ->
     Printf.sprintf "phago.(%s)" (string_of_actions actions)
@@ -649,7 +652,7 @@ and string_of_op = function
       (string_of_actions inner)
       (string_of_actions outer)
   | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
-    Printf.sprintf "(%s)(%s)=>(%s)(%s).(%s)"
+    Printf.sprintf "exch(%s)(%s)=>(%s)(%s).(%s)"
       (string_of_list ~sep:", " string_of_molecule bind_out)
       (string_of_list ~sep:", " string_of_molecule bind_in)
       (string_of_list ~sep:", " string_of_molecule release_out)
@@ -681,7 +684,7 @@ let rec left_side = function
 let%expect_test "let lexer test" = "
 let a = mate.() in 
 let b = !coexo.() in 
-(a, b, ()(:test_1)=>(:test_3)().())[:test_1, ()[], :test_2]
+(a, b, exch()(:test_1)=>(:test_3)().())[:test_1, ()[], :test_2]
 "
   |> sys_of_string
   |> Result.sexp_of_t sexp_of_sys sexp_of_error
@@ -780,7 +783,7 @@ let%expect_test "basic pino" = print_one_execution ~n:3 "
      ()[]] |}]
 
 let%expect_test "basic bind release" = print_one_execution "
-(()(:a)=>()(:b).())[:a]
+(exch()(:a)=>()(:b).())[:a]
 ";
   [%expect {|
     (()(:a)=>()(:b).())[
@@ -790,10 +793,10 @@ let%expect_test "basic bind release" = print_one_execution "
      :b] |}]
 
 let%expect_test "replicated bind release" = print_one_execution ~n:3 "
-(()(:a)=>(:b)().())[
-  (!()()=>(:a)().())[]]
+(exch()(:a)=>(:b)().())[
+  (!exch()()=>(:a)().())[]]
 ";
-  [%expect {|
+  [%expect{|
     (()(:a)=>(:b)().())[
      (!()()=>(:a)().())[]]
 
@@ -809,6 +812,19 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
     ()[
      :a,
      (!()()=>(:a)().())[]] |}]
+
+(*
+
+*)
+
+let%expect_test "plant vacuole" = print_one_execution "
+let proton_pump = !exch(:atp)()=>(:adp, :p)(:hplus, :hminus).() in 
+let ion_channel = !exch(:cl)(:hplus)=>()(:hplus, :cl).() in
+let proton_antiporter = !exch(:na)(:hplus)=>(:hplus)(:naplus).() in 
+let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
+plant_vacuole
+";
+  [%expect {| (!(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !(:cl)(:hplus)=>()(:hplus, :cl).(), !(:na)(:hplus)=>(:hplus)(:naplus).())[] |}]
 
 (* 
 let%expect_test "basic phago eval" =
