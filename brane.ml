@@ -289,6 +289,7 @@ type token =
   | Id of string
   | Dot
   | Bang
+  | Colon
   | LParen
   | RParen
   | LBracket
@@ -344,6 +345,7 @@ let tokens_of_string s =
       (* punctuation *)
       | `Begin, Some ',' -> next (); Ok `Begin, Some Comma
       | `Begin, Some '.' -> next (); Ok `Begin, Some Dot
+      | `Begin, Some ':' -> next (); Ok `Begin, Some Colon
       | `Begin, Some '!' -> next (); Ok `Begin, Some Bang
       | `Begin, Some '=' -> next (); Ok `Equal, None
       | `Equal, Some '>' -> next (); Ok `Begin, Some RArrow
@@ -528,8 +530,11 @@ let sys_of_tokens tokens =
       Ok [{ arep; op = BindRelease { 
         bind_out; bind_in; release_out; release_in; arg }}]
     | token -> Error (ExpectedOp token)
+  and eat_molecule () = 
+    let%bind () = eat Colon in
+    eat_id ()
   and eat_molecules ~close = 
-    eat_many ~sep:Comma ~close eat_id
+    eat_many ~sep:Comma ~close eat_molecule
   and eat_actions ?close act_bs = 
     let%bind actions = eat_many
       (fun () -> eat_action act_bs) ~sep:Comma ?close in
@@ -553,7 +558,13 @@ let sys_of_tokens tokens =
       Ok [Brane { brep; actions; contents }]
   and eat_sys ?close sys_bs act_bs = 
     let%bind sys = eat_many ~sep:Comma ?close 
-      (fun () -> eat_brane sys_bs act_bs)
+      (fun () -> 
+        match peek () with
+        (* TODO: consistency in returns? eat_brane already has Brane ctor *)
+        | Colon -> 
+          let%bind m = eat_molecule () in
+          Ok [Molecule m]
+        | _ -> eat_brane sys_bs act_bs)
     in 
     Ok (List.concat sys)
   in 
@@ -666,7 +677,11 @@ let rec left_side = function
   | Node (x, []) -> [x]
   | Node (x, hd :: _) -> x :: left_side hd
 
-let%expect_test "let lexer test" = "let a = mate.() in let b = !coexo.() in (a, b)[]"
+let%expect_test "let lexer test" = "
+let a = mate.() in 
+let b = !coexo.() in 
+(a, b, ()(:test_1)=>(:test_3)().())[:test_1, ()[], :test_2]
+"
   |> sys_of_string
   |> Result.sexp_of_t sexp_of_sys sexp_of_error
   |> Sexp.to_string_hum
@@ -676,8 +691,15 @@ let%expect_test "let lexer test" = "let a = mate.() in let b = !coexo.() in (a, 
      ((Brane
        ((actions
          (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
-          ((op (CoExo ())) (arep true))))
-        (brep false) (contents ()))))) |}]
+          ((op (CoExo ())) (arep true))
+          ((op
+            (BindRelease (bind_out ()) (bind_in (test_1)) (release_out (test_3))
+             (release_in ()) (arg ())))
+           (arep false))))
+        (brep false)
+        (contents
+         ((Molecule test_1) (Brane ((actions ()) (brep false) (contents ())))
+          (Molecule test_2))))))) |}]
 
 let%expect_test "let parser test" = 
   let s = "let a = mate.() in let b = !coexo.() in (a, b)[]" in
