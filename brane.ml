@@ -235,7 +235,7 @@ let rec step_system bs =
   @ hole_concat_map
     ~f:(fun hd x tl ->
       match x with
-      | Molecule _ -> [hd @ [x] @ tl]
+      | Molecule _ -> []
       | Brane b -> List.map
           ~f:(fun bs' -> hd @ 
             bs' @ tl)
@@ -614,10 +614,11 @@ let string_of_list ~sep string_of_x xs = xs
   |> List.map ~f:string_of_x
   |> String.concat ~sep
 
+let string_of_molecule m = ":" ^ m 
 let rec string_of_sys sys =
   string_of_list ~sep:",\n" 
     (function
-    | Molecule _ -> ":?"
+    | Molecule m -> string_of_molecule m
     | Brane b -> string_of_brane b)
     sys
 and string_of_brane b =
@@ -649,10 +650,10 @@ and string_of_op = function
       (string_of_actions outer)
   | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
     Printf.sprintf "(%s)(%s)=>(%s)(%s).(%s)"
-      (string_of_list ~sep:", " String.to_string bind_out)
-      (string_of_list ~sep:", " String.to_string bind_in)
-      (string_of_list ~sep:", " String.to_string release_out)
-      (string_of_list ~sep:", " String.to_string release_in)
+      (string_of_list ~sep:", " string_of_molecule bind_out)
+      (string_of_list ~sep:", " string_of_molecule bind_in)
+      (string_of_list ~sep:", " string_of_molecule release_out)
+      (string_of_list ~sep:", " string_of_molecule release_in)
       (string_of_actions arg)
 
 
@@ -777,6 +778,16 @@ let%expect_test "basic pino" = print_one_execution ~n:3 "
      ()[],
      ()[],
      ()[]] |}]
+
+let%expect_test "basic bind release" = print_one_execution "
+(()(:a)=>()(:b).())[:a]
+";
+  [%expect {|
+    (()(:a)=>()(:b).())[
+     :a]
+
+    ()[
+     :b] |}]
 
 (* 
 let%expect_test "basic phago eval" =
