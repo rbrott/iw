@@ -44,6 +44,12 @@ let cobud inner outer = Pino {
     inner = inner; outer = [{ arep = false; op = Exo[] }] }}];
   outer = [{ arep = false; op = CoExo outer}] }
 
+(* TODO: continuation, next, or something else? *)
+let drip arg cont = Pino 
+  { inner = [{ arep = false; op = Pino { inner = arg; outer = [{ arep = false; op = Exo [] }]}}]
+  ; outer = [{ arep = false; op = Exo cont }]
+  }
+
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
     ~f:(fun x (hd, tl, acc) ->
@@ -283,6 +289,7 @@ type op_token =
   | CoMateTok
   | BudTok
   | CoBudTok
+  | DripTok
   | BindReleaseTok
   [@@deriving sexp, equal]
 
@@ -320,6 +327,7 @@ let promote_reserved s =
   else if String.equal s "comate" then Op CoMateTok
   else if String.equal s "bud" then Op BudTok
   else if String.equal s "cobud" then Op CoBudTok 
+  else if String.equal s "drip" then Op DripTok
   else if String.equal s "exch" then Op BindReleaseTok
   else Id s
   
@@ -505,6 +513,15 @@ let sys_of_tokens tokens =
         let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (cobud inner outer)
+      | DripTok -> 
+        let%bind () = eat LParen in
+        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        let%bind () = eat Dot in
+        let%bind () = eat LParen in
+        let%bind outer = eat_actions ~close:RParen act_bs in
+        let%bind () = eat RParen in
+        Ok (drip inner outer)
       | BindReleaseTok ->
         let%bind () = eat LParen in
         let%bind bind_out = eat_molecules ~close:RParen in
@@ -843,148 +860,53 @@ plant_vacuole, :atp, :clminus
      :clminus,
      :hminus] |}]
 
-(* 
-let%expect_test "basic phago eval" =
-  print_system_eval_tree
-    [{ actions = [Tag "sigma1"; Phago [Tag "sigma"]; Tag "sigma2"]; 
-      contents = 
-        [{ actions = [Tag "p1"]; contents = [] };
-        { actions = [Tag "p2"]; contents = [] }] };
-    { actions = [Tag "tau1"; CoPhago { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "tau2"]; 
-      contents = 
-        [{ actions = [Tag "q1"]; contents = [] };
-        { actions = [Tag "q2"]; contents = [] }] } ];
+(* TODO: Cardelli has :trigger repeat - is this part of his syntax? *)
+(* TODO: Had to inline cytosol - the contents of cell - due to parsing ambiguity *)
+(* TODO: is there another execution branch? *)
+let%expect_test "viral infection" = print_one_execution "
+let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
+let capsid = !bud.(), disasm in
+let nucap = (capsid)[:vrna] in
+
+let vrna_repl = (!exch(:vrna)()=>(:vrna, :vrna)().())[] in
+
+let capsomers = exch(:vrna)()=>()(:vrna).(capsid) in
+let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip(capsomers).()))[] in
+
+let viral_envelope = cobud(phago.(exo.())).() in
+let envelope_vesicle = (exo.(viral_envelope))[] in
+
+let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
+
+let virus = (phago.(exo.()))[nucap] in
+let membrane = !cophago(). (mate. ()), !coexo. () in
+let endosome = (!comate.(), !coexo.())[] in
+let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
+
+virus, cell
+";
   [%expect {|
-    (Node
-     (((actions ((Tag sigma1) (Phago ((Tag sigma))) (Tag sigma2)))
-       (contents
-        (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))))
-      ((actions
-        ((Tag tau1) (CoPhago (inner ((Tag rho))) (outer ((Tag tau)))) (Tag tau2)))
-       (contents
-        (((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ()))))))
-     ((Node
-       (((actions ((Tag tau1) (Tag tau) (Tag tau2)))
-         (contents
-          (((actions ((Tag rho)))
-            (contents
-             (((actions ((Tag sigma1) (Tag sigma) (Tag sigma2)))
-               (contents
-                (((actions ((Tag p1))) (contents ()))
-                 ((actions ((Tag p2))) (contents ()))))))))
-           ((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ()))))))
-       ()))) |}]
+    (phago.(exo.()))[
+     (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+      :vrna]],
+    (!cophago().(phago.(exo.())), !coexo.())[
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(exo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(exo.())))[]]
 
-let%expect_test "basic exo eval" =
-  print_system_eval_tree [
-    { actions = [Tag "tau1"; CoExo [Tag "tau"]; Tag "tau2"]
-    ; contents = [
-      { actions = [Tag "q1"]; contents = [] };
-      { actions = [Tag "sigma1"; Exo [Tag "sigma"]; Tag "sigma2"]
-      ; contents = [
-        { actions = [Tag "p1"]; contents = [] };
-        { actions = [Tag "p2"]; contents = [] }
-      ]};
-      { actions = [Tag "q2"]; contents = [] }
-    ]}];
-  [%expect {|
-    (Node
-     (((actions ((Tag tau1) (CoExo ((Tag tau))) (Tag tau2)))
-       (contents
-        (((actions ((Tag q1))) (contents ()))
-         ((actions ((Tag sigma1) (Exo ((Tag sigma))) (Tag sigma2)))
-          (contents
-           (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))))
-         ((actions ((Tag q2))) (contents ()))))))
-     ((Node
-       (((actions
-          ((Tag sigma1) (Tag sigma) (Tag sigma2) (Tag tau1) (Tag tau) (Tag tau2)))
-         (contents
-          (((actions ((Tag q1))) (contents ())) ((actions ((Tag q2))) (contents ())))))
-        ((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ())))
-       ()))) |}]
+    (phago.(exo.()), !cophago().(phago.(exo.())), !coexo.())[
+     ()[
+      (exo.())[
+       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+        :vrna]]],
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(exo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(exo.())))[]] |}]
 
-let%expect_test "basic pino eval" =
-  print_system_eval_tree
-    [{ actions = [Pino { inner = [Tag "rho"]; outer = [Tag "tau"] }; Tag "sigma"]
-    ; contents = 
-      [{ actions = [Tag "p1"]; contents = [] };
-      { actions = [Tag "p2"]; contents = [] }] }];
-  [%expect {|
-    (Node
-     (((actions ((Pino (inner ((Tag rho))) (outer ((Tag tau)))) (Tag sigma)))
-       (contents
-        (((actions ((Tag p1))) (contents ())) ((actions ((Tag p2))) (contents ()))))))
-     ((Node
-       (((actions ((Tag tau) (Tag sigma)))
-         (contents
-          (((actions ((Tag rho))) (contents ())) ((actions ((Tag p1))) (contents ()))
-           ((actions ((Tag p2))) (contents ()))))))
-       ()))) |}]
+(*
 
-let%expect_test "basic mate" =
-  print_system_eval_tree [
-    { actions = [mate [Tag "Left"]]; contents = [] };
-    { actions = [comate [Tag "Right"]]; contents = [] } ];
-  [%expect {|
-    (Node
-     (((actions ((Phago ((Exo ((Tag Left))))))) (contents ()))
-      ((actions
-        ((CoPhago (inner ((CoExo ((Exo ()))))) (outer ((CoExo ((Tag Right))))))))
-       (contents ())))
-     ((Node
-       (((actions ((CoExo ((Tag Right)))))
-         (contents
-          (((actions ((CoExo ((Exo ())))))
-            (contents (((actions ((Exo ((Tag Left))))) (contents ())))))))))
-       ((Node
-         (((actions ((CoExo ((Tag Right)))))
-           (contents (((actions ((Tag Left) (Exo ()))) (contents ()))))))
-         ((Node (((actions ((Tag Left) (Tag Right))) (contents ()))) ()))))))) |}]
-
-let%expect_test "basic bud" =
-  print_system_eval_tree [
-    { actions = [cobud [] []]
-    ; contents = [
-      { actions = [bud []; Tag "P"]
-      ; contents = [] };
-      { actions = [Tag "Q"] 
-      ; contents = [] } ] } ];
-  [%expect {|
-    (Node
-     (((actions
-        ((Pino (inner ((CoPhago (inner ()) (outer ((Exo ()))))))
-          (outer ((CoExo ()))))))
-       (contents
-        (((actions ((Phago ()) (Tag P))) (contents ()))
-         ((actions ((Tag Q))) (contents ()))))))
-     ((Node
-       (((actions ((CoExo ())))
-         (contents
-          (((actions ((CoPhago (inner ()) (outer ((Exo ())))))) (contents ()))
-           ((actions ((Phago ()) (Tag P))) (contents ()))
-           ((actions ((Tag Q))) (contents ()))))))
-       ((Node
-         (((actions ((CoExo ())))
-           (contents
-            (((actions ((Exo ())))
-              (contents
-               (((actions ()) (contents (((actions ((Tag P))) (contents ()))))))))
-             ((actions ((Tag Q))) (contents ()))))))
-         ((Node
-           (((actions ()) (contents (((actions ((Tag Q))) (contents ())))))
-            ((actions ()) (contents (((actions ((Tag P))) (contents ()))))))
-           ()))))))) |}]
-
-(* TODO: do we need drip? *)
-
-let%expect_test "basic phago eval" =
-  print_system_eval_tree [
-    { actions = [{ op = Phago []; arep = true }]
-    ; brep = false
-    ; contents = [] };
-    { actions = [{ op = CoPhago { inner = []; outer = [] }; arep = true }]
-    ; brep = false
-    ; contents = [] }];
-  [%expect {| |}]
- *)
+*)
