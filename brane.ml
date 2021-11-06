@@ -1,7 +1,7 @@
 open Core
 
 type molecule = string
-  [@@deriving sexp]
+  [@@deriving sexp, equal]
 type action = 
   { op: op
   ; arep: bool }
@@ -16,7 +16,8 @@ and op =
   (* molecule interactions *)
   | BindRelease of 
     { bind_out: molecule list; bind_in: molecule list
-    ; release_out: molecule list; release_in: molecule list }
+    ; release_out: molecule list; release_in: molecule list
+    ; arg: action list }
   [@@deriving sexp]
 
 type sys = sys_elt list
@@ -158,7 +159,7 @@ let pino_step br =
       | _ -> [])
 
 let split_match ~equal ~targets xs =
-  let xs', targets' = List.fold_right xs
+  List.fold_right xs
     ~init:([], targets) 
     ~f:(fun x (tl, targets) ->
       match List.findi ~f:(fun _ -> equal x) targets with
@@ -166,27 +167,32 @@ let split_match ~equal ~targets xs =
       | Some (i, _) -> tl, 
         let targets_hd, targets_tl = List.split_n targets i in
         targets_hd @ List.tl_exn targets_tl)
-  in
-  match targets' with
-  | [] -> Some xs'
-  | _ -> None
 
 let%expect_test "split match fail" =
   split_match ~equal:Int.equal ~targets:[3; 3; 5] [1; 2; 3; 4; 5]
-  |> Option.sexp_of_t (List.sexp_of_t Int.sexp_of_t)
+  |> Tuple2.sexp_of_t 
+    (List.sexp_of_t Int.sexp_of_t)
+    (List.sexp_of_t Int.sexp_of_t)
   |> Sexp.to_string_hum
   |> print_endline;
   [%expect {|
-    () |}] 
+    ((1 2 4) (3)) |}] 
 
 let%expect_test "split match succeed" =
   split_match ~equal:Int.equal ~targets:[3; 3; 5] [3; 3; 1; 2; 3; 4; 5]
-  |> Option.sexp_of_t (List.sexp_of_t Int.sexp_of_t)
+  |> Tuple2.sexp_of_t 
+    (List.sexp_of_t Int.sexp_of_t)
+    (List.sexp_of_t Int.sexp_of_t)
   |> Sexp.to_string_hum
   |> print_endline;
-  [%expect {| ((3 1 2 4)) |}]
+  [%expect {| ((3 1 2 4) ()) |}]
 
-(* let bind_release_step sys =
+let bind_release_step sys =
+  let equal x m = 
+    match x with
+    | Brane _ -> false
+    | Molecule m' -> equal_molecule m m'
+  in
   hole_concat_map sys
     ~f:(fun sys_hd x sys_tl ->
       match x with
@@ -195,13 +201,36 @@ let%expect_test "split match succeed" =
         hole_concat_map b.actions
           ~f:(fun act_hd act act_tl -> 
             match act.op with
-            | BindRelease { bind_out; bind_in; release_out; release_in } ->
-              []
-            | _ -> []))  *)
+            | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
+              (* Search for out molecules in both halves *)
+              (match
+                (match split_match ~equal ~targets:bind_out sys_tl with
+                | sys_tl', [] -> Some (sys_hd, sys_tl')
+                | sys_tl', bind_out' -> 
+                  (match split_match ~equal ~targets:bind_out' sys_hd with
+                  | sys_hd', [] -> Some (sys_hd', sys_tl')
+                  | _ -> None))
+              with
+              | None -> []
+              (* Then search for in molecules *)
+              | Some (sys_hd', sys_tl') ->
+                (match split_match ~equal ~targets:bind_in b.contents with
+                | contents', [] -> 
+                  let wrap = List.map ~f:(fun m -> Molecule m) in
+                  [ wrap release_out @ sys_hd' @
+                    [Brane { actions = act_hd @ arg @ ac_res act @ act_tl 
+                    ; brep = false
+                    ; contents = wrap release_in @ contents' 
+                    }]
+                    @ br_res b @ sys_tl']
+                | _ -> []))
+            | _ -> [])) 
 
 let rec step_system bs =
   (* phago step *)
   phago_step bs
+  (* bind release step *)
+  @ bind_release_step bs
   (* recursive step *)
   @ hole_concat_map
     ~f:(fun hd x tl ->
@@ -482,7 +511,6 @@ let sys_of_tokens tokens =
     | LParen -> next();
       let%bind bind_out = eat_molecules ~close:RParen in
       let%bind () = eat RParen in
-      let%bind () = eat Dot in
       let%bind () = eat LParen in
       let%bind bind_in = eat_molecules ~close:RParen in
       let%bind () = eat RParen in
@@ -490,12 +518,15 @@ let sys_of_tokens tokens =
       let%bind () = eat LParen in
       let%bind release_out = eat_molecules ~close:RParen in
       let%bind () = eat RParen in
-      let%bind () = eat Dot in
       let%bind () = eat LParen in
       let%bind release_in = eat_molecules ~close:RParen in
       let%bind () = eat RParen in
+      let%bind () = eat Dot in
+      let%bind () = eat LParen in
+      let%bind arg = eat_actions ~close:RParen act_bs in
+      let%bind () = eat RParen in
       Ok [{ arep; op = BindRelease { 
-        bind_out; bind_in; release_out; release_in }}]
+        bind_out; bind_in; release_out; release_in; arg }}]
     | token -> Error (ExpectedOp token)
   and eat_molecules ~close = 
     eat_many ~sep:Comma ~close eat_id
@@ -605,12 +636,13 @@ and string_of_op = function
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
-  | BindRelease { bind_out; bind_in; release_out; release_in } ->
-    Printf.sprintf "(%s).(%s)=>(%s).(%s)"
+  | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
+    Printf.sprintf "(%s)(%s)=>(%s)(%s).(%s)"
       (string_of_list ~sep:", " String.to_string bind_out)
       (string_of_list ~sep:", " String.to_string bind_in)
       (string_of_list ~sep:", " String.to_string release_out)
       (string_of_list ~sep:", " String.to_string release_in)
+      (string_of_actions arg)
 
 
 type error =
