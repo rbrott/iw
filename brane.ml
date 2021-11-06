@@ -742,7 +742,7 @@ let print_one_execution ?n s = s
 let%expect_test "molecular virus example" = print_one_execution "
 let nucap = (!bud.())[] in
 let virus = (phago.(exo.()))[nucap] in
-let membrane = !cophago(). (mate. ()), !coexo. () in
+let membrane = !cophago(mate.()).(), !coexo. () in
 let cytosol = (!comate.(), !coexo.())[] in
 let cell = (membrane)[cytosol] in
 let viral_envelope = cobud(phago.(exo.())).() in
@@ -752,14 +752,41 @@ virus, cell
   [%expect {|
     (phago.(exo.()))[
      (!phago.())[]],
-    (!cophago().(phago.(exo.())), !coexo.())[
+    (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]]
 
-    (phago.(exo.()), !cophago().(phago.(exo.())), !coexo.())[
-     ()[
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (phago.(exo.()))[
       (exo.())[
        (!phago.())[]]],
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]] |}]
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (coexo.(exo.()))[
+       (exo.())[
+        (exo.())[
+         (!phago.())[]]]]]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (exo.())[],
+      (exo.())[
+       (!phago.())[]]]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (exo.())[
+       (!phago.())[]]]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+     (!phago.())[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (coexo.(exo.()))[
+       (!phago.())[]]]] |}]
 
 let%expect_test "basic phago" = print_one_execution "
 (!phago.())[], (!cophago().())[]
@@ -931,7 +958,7 @@ let envelope_vesicle = (exo.(viral_envelope))[] in
 let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
 
 let virus = (phago.(exo.()))[nucap] in
-let membrane = !cophago(). (mate. ()), !coexo. () in
+let membrane = !cophago(mate.()).(), !coexo. () in
 let endosome = (!comate.(), !coexo.())[] in
 let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
 
@@ -941,19 +968,71 @@ virus, cell
     (phago.(exo.()))[
      (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
       :vrna]],
-    (!cophago().(phago.(exo.())), !coexo.())[
+    (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
      :trigger,
      (!exch(:vrna)()=>(:vrna, :vrna)().())[],
      (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
      (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
 
-    (phago.(exo.()), !cophago().(phago.(exo.())), !coexo.())[
-     ()[
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (phago.(exo.()))[
       (exo.())[
        (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
         :vrna]]],
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (coexo.(exo.()))[
+       (exo.())[
+        (exo.())[
+         (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+          :vrna]]]]],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (exo.())[],
+      (exo.())[
+       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+        :vrna]]],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (exo.())[
+       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+        :vrna]]],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+     (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+      :vrna],
+     :trigger,
+     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+
+    (!cophago(phago.(exo.())).(), !coexo.())[
+     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
+      (coexo.(exo.()))[
+       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+        :vrna]]],
      :trigger,
      (!exch(:vrna)()=>(:vrna, :vrna)().())[],
      (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
