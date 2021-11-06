@@ -47,7 +47,7 @@ let cobud inner outer = Pino {
 (* TODO: continuation, next, or something else? *)
 let drip arg cont = Pino 
   { inner = [{ arep = false; op = Pino { inner = arg; outer = [{ arep = false; op = Exo [] }]}}]
-  ; outer = [{ arep = false; op = Exo cont }]
+  ; outer = [{ arep = false; op = CoExo cont }]
   }
 
 let hole_fold_right ~f ~init xs =
@@ -799,6 +799,58 @@ let%expect_test "basic pino" = print_one_execution ~n:3 "
      ()[],
      ()[]] |}]
 
+let%expect_test "basic mate" = print_one_execution ~n:3 "
+(mate.())[], (comate.())[]
+";
+  [%expect {|
+    (phago.(exo.()))[],
+    (cophago(coexo.(exo.())).(coexo.()))[]
+
+    (coexo.())[
+     (coexo.(exo.()))[
+      (exo.())[]]]
+
+    (coexo.())[
+     (exo.())[]]
+
+    ()[] |}]
+
+let%expect_test "basic drip" = print_one_execution ~n:3 "
+(cobud().())[(bud.())[]]
+";
+  [%expect {|
+    (pino(cophago().(exo.())).(coexo.()))[
+     (phago.())[]]
+
+    (coexo.())[
+     (cophago().(exo.()))[],
+     (phago.())[]]
+
+    (coexo.())[
+     (exo.())[
+      ()[
+       ()[]]]]
+
+    ()[],
+    ()[
+     ()[]] |}]
+
+let%expect_test "basic drip" = print_one_execution ~n:3 "
+(drip().())[]
+";
+  [%expect {|
+    (pino(pino().(exo.())).(coexo.()))[]
+
+    (coexo.())[
+     (pino().(exo.()))[]]
+
+    (coexo.())[
+     (exo.())[
+      ()[]]]
+
+    ()[],
+    ()[] |}]
+
 let%expect_test "basic bind release" = print_one_execution "
 (exch()(:a)=>()(:b).())[:a]
 ";
@@ -893,8 +945,8 @@ virus, cell
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
      :trigger,
      (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(exo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(exo.())))[]]
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
 
     (phago.(exo.()), !cophago().(phago.(exo.())), !coexo.())[
      ()[
@@ -904,8 +956,8 @@ virus, cell
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
      :trigger,
      (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(exo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(exo.())))[]] |}]
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]] |}]
 
 (*
 
