@@ -157,6 +157,48 @@ let pino_step br =
           :: contents }]]
       | _ -> [])
 
+let split_match ~equal ~targets xs =
+  let xs', targets' = List.fold_right xs
+    ~init:([], targets) 
+    ~f:(fun x (tl, targets) ->
+      match List.findi ~f:(fun _ -> equal x) targets with
+      | None -> x :: tl, targets
+      | Some (i, _) -> tl, 
+        let targets_hd, targets_tl = List.split_n targets i in
+        targets_hd @ List.tl_exn targets_tl)
+  in
+  match targets' with
+  | [] -> Some xs'
+  | _ -> None
+
+let%expect_test "split match fail" =
+  split_match ~equal:Int.equal ~targets:[3; 3; 5] [1; 2; 3; 4; 5]
+  |> Option.sexp_of_t (List.sexp_of_t Int.sexp_of_t)
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {|
+    () |}] 
+
+let%expect_test "split match succeed" =
+  split_match ~equal:Int.equal ~targets:[3; 3; 5] [3; 3; 1; 2; 3; 4; 5]
+  |> Option.sexp_of_t (List.sexp_of_t Int.sexp_of_t)
+  |> Sexp.to_string_hum
+  |> print_endline;
+  [%expect {| ((3 1 2 4)) |}]
+
+(* let bind_release_step sys =
+  hole_concat_map sys
+    ~f:(fun sys_hd x sys_tl ->
+      match x with
+      | Molecule _ -> []
+      | Brane b ->
+        hole_concat_map b.actions
+          ~f:(fun act_hd act act_tl -> 
+            match act.op with
+            | BindRelease { bind_out; bind_in; release_out; release_in } ->
+              []
+            | _ -> []))  *)
+
 let rec step_system bs =
   (* phago step *)
   phago_step bs
