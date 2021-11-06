@@ -789,6 +789,27 @@ let%expect_test "basic bind release" = print_one_execution "
     ()[
      :b] |}]
 
+let%expect_test "replicated bind release" = print_one_execution ~n:3 "
+(()(:a)=>(:b)().())[
+  (!()()=>(:a)().())[]]
+";
+  [%expect {|
+    (()(:a)=>(:b)().())[
+     (!()()=>(:a)().())[]]
+
+    (()(:a)=>(:b)().())[
+     :a,
+     (!()()=>(:a)().())[]]
+
+    :b,
+    ()[
+     (!()()=>(:a)().())[]]
+
+    :b,
+    ()[
+     :a,
+     (!()()=>(:a)().())[]] |}]
+
 (* 
 let%expect_test "basic phago eval" =
   print_system_eval_tree
