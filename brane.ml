@@ -2,23 +2,33 @@ open Core
 
 type molecule = string
   [@@deriving sexp, equal]
+
 type action = 
   { op: op
-  ; arep: bool }
+  ; arep: bool 
+  }
   [@@deriving sexp]
-and op =
+and op = code * action list
+and code =
   (* brane interactions *)
-  | Phago of action list
-  | CoPhago of { inner: action list; outer: action list }
-  | Exo of action list
-  | CoExo of action list
-  | Pino of { inner: action list; outer: action list }
+  | Phago
+  | CoPhago of action list
+  | Exo
+  | CoExo
+  | Pino of action list
   (* molecule interactions *)
   | BindRelease of 
     { bind_out: molecule list; bind_in: molecule list
     ; release_out: molecule list; release_in: molecule list
-    ; arg: action list }
+    }
   [@@deriving sexp]
+
+(* type process = process_elt list
+  [@@deriving sexp]
+and process_elt =
+  | Action of action
+  | ProcessName of string * process
+  [@@deriving sexp] *)
 
 type sys = sys_elt list
   [@@deriving sexp]
@@ -34,22 +44,21 @@ and brane =
   [@@deriving sexp]
 
 
-let mate bs = Phago [{ arep = false; op = Exo bs }]
-let comate bs = CoPhago { 
-  inner = [{ arep = false; op = CoExo [{ arep = false; op = Exo [] }] }]; 
-  outer = [{ arep = false; op = CoExo bs }] }
+let mate cont = Phago, [{ arep = false; op = Exo, cont }]
+let comate cont = 
+  CoPhago [{ arep = false; op = CoExo, [{ arep = false; op = Exo, [] }] }],
+  [{ arep = false; op = CoExo, cont }]
 
-let bud bs = Phago bs
-let cobud inner outer = Pino {
-  inner = [{ arep = false; op = CoPhago { 
-    inner = inner; outer = [{ arep = false; op = Exo[] }] }}];
-  outer = [{ arep = false; op = CoExo outer}] }
+let bud cont = Phago, cont 
+let cobud arg cont = 
+  Pino [{ arep = false; op = CoPhago arg, [{ arep = false; op = Exo, [] }] }],
+  [{ arep = false; op = CoExo, cont }]
 
 (* TODO: continuation, next, or something else? *)
-let drip arg cont = Pino 
-  { inner = [{ arep = false; op = Pino { inner = arg; outer = [{ arep = false; op = Exo [] }]}}]
-  ; outer = [{ arep = false; op = CoExo cont }]
-  }
+let drip arg cont = 
+  Pino [{ arep = false; op = Pino arg,
+    [{ arep = false; op = Exo, [] }] }],
+  [{ arep = false; op = CoExo, cont }]
 
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
@@ -104,7 +113,7 @@ let phago_step bs =
       hole_concat_map actions
         ~f:(fun ac_hd ac ac_tl ->
           match ac.op with
-          | Phago ac_inner -> [
+          | Phago, ac_inner -> [
             { actions = ac_hd @ ac_inner @ ac_res ac @ ac_tl
             ; brep = false
             ; contents = cont_inner }, 
@@ -119,7 +128,7 @@ let phago_step bs =
           hole_concat_map actions
             ~f:(fun ac_hd ac ac_tl ->
               match ac.op with
-              | CoPhago { inner = ac_middle; outer = ac_outer } -> 
+              | CoPhago ac_middle, ac_outer -> 
                 [sys_hd @ 
                   [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
                   ; brep = false
@@ -136,14 +145,14 @@ let exo_step br_outer =
   hole_concat_map actions
     ~f:(fun ac_hd1 ac1 ac_tl1 -> 
       match ac1.op with
-      | CoExo ac_outer1 ->
+      | CoExo, ac_outer1 ->
         brane_hole_concat_map cont_outer
           ~f:(fun br_hd br_inner br_tl ->
             let { actions; contents = cont_inner; _ } = br_inner in
             hole_concat_map actions
               ~f:(fun ac_hd2 ac2 ac_tl2 ->
                 match ac2.op with
-                | Exo ac_outer2 -> [
+                | Exo, ac_outer2 -> [
                   Brane { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
                     @ ac_hd1 @ ac_outer1 @ ac_res ac1 @ ac_tl1
                   ; brep = false
@@ -157,7 +166,7 @@ let pino_step br =
   hole_concat_map actions
     ~f:(fun ac_hd ac ac_tl ->
       match ac.op with 
-      | Pino { inner = ac_inner; outer = ac_outer } -> 
+      | Pino ac_inner, ac_outer -> 
         [(br_res br) @
         [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
         ; brep = false
@@ -208,7 +217,7 @@ let bind_release_step sys =
       hole_concat_map b.actions
         ~f:(fun act_hd act act_tl -> 
           match act.op with
-          | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
+          | BindRelease { bind_out; bind_in; release_out; release_in }, cont ->
             (* Search for out molecules in both halves *)
             (match
               (match split_match ~equal ~targets:bind_out sys_tl with
@@ -225,7 +234,7 @@ let bind_release_step sys =
               | contents', [] -> 
                 let wrap = List.map ~f:(fun m -> Molecule m) in
                 [ wrap release_out @ sys_hd' @
-                  [Brane { actions = act_hd @ arg @ ac_res act @ act_tl 
+                  [Brane { actions = act_hd @ cont @ ac_res act @ act_tl 
                   ; brep = false
                   ; contents = wrap release_in @ contents' 
                   }]
@@ -454,7 +463,7 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (Phago actions)
+        Ok (Phago, actions)
       | CoPhagoTok -> 
         let%bind () = eat LParen in
         let%bind inner = eat_actions ~close:RParen act_bs in
@@ -463,19 +472,19 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (CoPhago { inner; outer })
+        Ok (CoPhago inner, outer)
       | ExoTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
         let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (Exo actions)
+        Ok (Exo, actions)
       | CoExoTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
         let%bind actions = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (CoExo actions)
+        Ok (CoExo, actions)
       | PinoTok -> 
         let%bind () = eat LParen in
         let%bind inner = eat_actions ~close:RParen act_bs in
@@ -484,7 +493,7 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind outer = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (Pino{ inner; outer })
+        Ok (Pino inner, outer)
       | MateTok -> 
         let%bind () = eat Dot in
         let%bind () = eat LParen in
@@ -537,10 +546,10 @@ let sys_of_tokens tokens =
         let%bind () = eat RParen in
         let%bind () = eat Dot in
         let%bind () = eat LParen in
-        let%bind arg = eat_actions ~close:RParen act_bs in
+        let%bind cont = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (BindRelease { 
-          bind_out; bind_in; release_out; release_in; arg }))
+          bind_out; bind_in; release_out; release_in }, cont))
       in Ok [{ arep; op }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
@@ -654,27 +663,27 @@ and string_of_action a =
 and string_of_actions a = string_of_list ~sep:", " string_of_action a
 (* TODO: is there a better way to keep this in sync with the parser? *)
 and string_of_op = function
-  | Phago actions ->
+  | Phago, actions ->
     Printf.sprintf "phago.(%s)" (string_of_actions actions)
-  | CoPhago { inner; outer } ->
+  | CoPhago inner, outer ->
     Printf.sprintf "cophago(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
-  | Exo actions ->
+  | Exo, actions ->
     Printf.sprintf "exo.(%s)" (string_of_actions actions)
-  | CoExo actions ->
+  | CoExo, actions ->
     Printf.sprintf "coexo.(%s)" (string_of_actions actions)
-  | Pino { inner; outer } ->
+  | Pino inner, outer ->
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
       (string_of_actions outer)
-  | BindRelease { bind_out; bind_in; release_out; release_in; arg } ->
+  | BindRelease { bind_out; bind_in; release_out; release_in }, cont ->
     Printf.sprintf "exch(%s)(%s)=>(%s)(%s).(%s)"
       (string_of_list ~sep:", " string_of_molecule bind_out)
       (string_of_list ~sep:", " string_of_molecule bind_in)
       (string_of_list ~sep:", " string_of_molecule release_out)
       (string_of_list ~sep:", " string_of_molecule release_in)
-      (string_of_actions arg)
+      (string_of_actions cont)
 
 
 type error =
@@ -714,8 +723,9 @@ let b = !coexo.() in
          (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
           ((op (CoExo ())) (arep true))
           ((op
-            (BindRelease (bind_out ()) (bind_in (test_1)) (release_out (test_3))
-             (release_in ()) (arg ())))
+            ((BindRelease (bind_out ()) (bind_in (test_1)) (release_out (test_3))
+              (release_in ()))
+             ()))
            (arep false))))
         (brep false)
         (contents
