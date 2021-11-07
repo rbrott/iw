@@ -562,7 +562,7 @@ let sys_of_tokens tokens =
     match peek () with 
     | Id sys_id -> next(); begin
       match Map.find sys_bs sys_id with
-      | Some sys -> Ok sys 
+      | Some sys -> Ok [SysName (sys_id, sys)]
       | None -> Error (NoSysForId sys_id)
       end
     | _ -> 
@@ -750,38 +750,36 @@ let envelope_vesicle = (exo.(viral_envelope))[] in
 virus, cell
 ";
   [%expect {|
-    (phago.(exo.()))[
-     (!phago.())[]],
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]]
+    virus,
+    cell
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (phago.(exo.()))[
       (exo.())[
-       (!phago.())[]]],
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[]]
+       nucap]],
+     cytosol]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (coexo.(exo.()))[
        (exo.())[
         (exo.())[
-         (!phago.())[]]]]]]
+         nucap]]]]]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (exo.())[],
       (exo.())[
-       (!phago.())[]]]]
+       nucap]]]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (exo.())[
-       (!phago.())[]]]]
+       nucap]]]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
-     (!phago.())[]]
+     nucap]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
@@ -921,7 +919,7 @@ let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
 plant_vacuole, :atp, :clminus
 ";
   [%expect {|
-    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[],
+    plant_vacuole,
     :atp,
     :clminus
 
@@ -965,68 +963,56 @@ let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
 virus, cell
 ";
   [%expect {|
-    (phago.(exo.()))[
-     (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-      :vrna]],
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
-     :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+    virus,
+    cell
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (phago.(exo.()))[
       (exo.())[
-       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-        :vrna]]],
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
+       nucap]],
+     endosome,
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+     vrna_repl,
+     capsomer_tran,
+     er]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (coexo.(exo.()))[
        (exo.())[
         (exo.())[
-         (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-          :vrna]]]]],
+         nucap]]]],
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+     vrna_repl,
+     capsomer_tran,
+     er]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (exo.())[],
       (exo.())[
-       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-        :vrna]]],
+       nucap]],
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+     vrna_repl,
+     capsomer_tran,
+     er]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (exo.())[
-       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-        :vrna]]],
+       nucap]],
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+     vrna_repl,
+     capsomer_tran,
+     er]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
-     (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
-      :vrna],
+     nucap,
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]]
+     vrna_repl,
+     capsomer_tran,
+     er]
 
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
@@ -1034,9 +1020,9 @@ virus, cell
        (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
         :vrna]]],
      :trigger,
-     (!exch(:vrna)()=>(:vrna, :vrna)().())[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exch(:vrna)()=>()(:vrna).(!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())).(exo.())).(coexo.())))[],
-     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(pino(cophago(phago.(exo.())).(exo.())).(coexo.()))).(exo.())).(coexo.())))[]] |}]
+     vrna_repl,
+     capsomer_tran,
+     er] |}]
 
 (*
 
