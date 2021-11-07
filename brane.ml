@@ -456,80 +456,34 @@ let sys_of_tokens tokens =
   let rec eat_action act_bs = 
     let arep = eat_opt Bang in 
     match peek () with
-    | Op op_tok -> next(); let%bind op =
+    | Op op_tok -> next(); let%bind op_fun =
       (match op_tok with
-      | PhagoTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (Phago, actions)
+      | PhagoTok -> Ok (fun cont -> Phago, cont)
       | CoPhagoTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind outer = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (CoPhago inner, outer)
-      | ExoTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (Exo, actions)
-      | CoExoTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (CoExo, actions)
+        Ok (fun cont -> CoPhago arg, cont)
+      | ExoTok -> Ok (fun cont -> Exo, cont)
+      | CoExoTok -> Ok (fun cont -> CoExo, cont)
       | PinoTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind outer = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (Pino inner, outer)
-      | MateTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (mate actions)
-      | CoMateTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (comate actions)
-      | BudTok -> 
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind actions = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (bud actions)
+        Ok (fun cont -> Pino arg, cont)
+      | MateTok -> Ok (fun cont -> mate cont)
+      | CoMateTok -> Ok (fun cont -> comate cont)
+      | BudTok -> Ok (fun cont -> bud cont)
       | CoBudTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind outer = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (cobud inner outer)
+        Ok (fun cont -> cobud arg cont)
       | DripTok -> 
         let%bind () = eat LParen in
-        let%bind inner = eat_actions ~close:RParen act_bs in
+        let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind outer = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (drip inner outer)
+        Ok (fun cont -> drip arg cont)
       | BindReleaseTok ->
         let%bind () = eat LParen in
         let%bind bind_out = eat_molecules ~close:RParen in
@@ -544,13 +498,14 @@ let sys_of_tokens tokens =
         let%bind () = eat LParen in
         let%bind release_in = eat_molecules ~close:RParen in
         let%bind () = eat RParen in
-        let%bind () = eat Dot in
-        let%bind () = eat LParen in
-        let%bind cont = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (BindRelease { 
+        Ok (fun cont -> BindRelease { 
           bind_out; bind_in; release_out; release_in }, cont))
-      in Ok [{ arep; op }]
+      in
+      let%bind () = eat Dot in
+      let%bind () = eat LParen in
+      let%bind cont = eat_actions ~close:RParen act_bs in
+      let%bind () = eat RParen in
+      Ok [{ arep; op = op_fun cont }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
       | Some actions -> Ok actions
