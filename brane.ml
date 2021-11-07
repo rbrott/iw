@@ -3,32 +3,31 @@ open Core
 type molecule = string
   [@@deriving sexp, equal]
 
-type action = 
+type process = process_elt list
+  [@@deriving sexp]
+and process_elt =
+  | Action of action
+  | ProcessName of string * process
+  [@@deriving sexp]
+and action = 
   { op: op
   ; arep: bool 
   }
   [@@deriving sexp]
-and op = code * action list
+and op = code * process
 and code =
   (* brane interactions *)
   | Phago
-  | CoPhago of action list
+  | CoPhago of process
   | Exo
   | CoExo
-  | Pino of action list
+  | Pino of process
   (* molecule interactions *)
   | BindRelease of 
     { bind_out: molecule list; bind_in: molecule list
     ; release_out: molecule list; release_in: molecule list
     }
   [@@deriving sexp]
-
-(* type process = process_elt list
-  [@@deriving sexp]
-and process_elt =
-  | Action of action
-  | ProcessName of string * process
-  [@@deriving sexp] *)
 
 type sys = sys_elt list
   [@@deriving sexp]
@@ -38,27 +37,30 @@ and sys_elt =
   | SysName of string * sys
   [@@deriving sexp]
 and brane = 
-  { actions: action list
+  (* TODO: probably rename actions at some point *)
+  { actions: process
   ; brep: bool
   ; contents: sys }
   [@@deriving sexp]
 
 
-let mate cont = Phago, [{ arep = false; op = Exo, cont }]
+let mate cont = Phago, [Action { arep = false; op = Exo, cont }]
 let comate cont = 
-  CoPhago [{ arep = false; op = CoExo, [{ arep = false; op = Exo, [] }] }],
-  [{ arep = false; op = CoExo, cont }]
+  CoPhago [Action { arep = false; op = CoExo, 
+    [Action { arep = false; op = Exo, [] }] }],
+  [Action { arep = false; op = CoExo, cont }]
 
 let bud cont = Phago, cont 
 let cobud arg cont = 
-  Pino [{ arep = false; op = CoPhago arg, [{ arep = false; op = Exo, [] }] }],
-  [{ arep = false; op = CoExo, cont }]
+  Pino [Action { arep = false; op = CoPhago arg, 
+    [Action { arep = false; op = Exo, [] }] }],
+  [Action { arep = false; op = CoExo, cont }]
 
 (* TODO: continuation, next, or something else? *)
 let drip arg cont = 
-  Pino [{ arep = false; op = Pino arg,
-    [{ arep = false; op = Exo, [] }] }],
-  [{ arep = false; op = CoExo, cont }]
+  Pino [Action { arep = false; op = Pino arg,
+    [Action { arep = false; op = Exo, [] }] }],
+  [Action { arep = false; op = CoExo, cont }]
 
 let hole_fold_right ~f ~init xs =
   let _, _, acc = List.fold_right 
@@ -101,16 +103,27 @@ let brane_hole_concat_map ~f sys =
         | SysName (_, s) -> aux f hd s tl)
   in aux f [] sys []
 
+let action_hole_concat_map ~f pr =
+  let rec aux f outer_pr_hd pr outer_pr_tl =
+    hole_concat_map pr
+      ~f:(fun inner_pr_hd el inner_pr_tl ->
+        let hd = outer_pr_hd @ inner_pr_hd in
+        let tl = inner_pr_tl @ outer_pr_tl in
+        match el with
+        | Action a -> f hd a tl
+        | ProcessName (_, s) -> aux f hd s tl)
+  in aux f [] pr []
+
 (* brane and action residue *)
 let br_res b = if b.brep then [Brane b] else []
-let ac_res a = if a.arep then [a] else []
+let ac_res a = if a.arep then [Action a] else []
 
 let phago_step bs =
   (* produces inner branes with previous siblings *)
   brane_hole_concat_map bs
     ~f:(fun sys_hd br sys_tl ->
       let { actions; contents = cont_inner; _ } = br in
-      hole_concat_map actions
+      action_hole_concat_map actions
         ~f:(fun ac_hd ac ac_tl ->
           match ac.op with
           | Phago, ac_inner -> [
@@ -125,7 +138,7 @@ let phago_step bs =
       brane_hole_concat_map bs'
         ~f:(fun sys_hd br_outer sys_tl ->
           let { actions; contents = cont_middle; _ } = br_outer in
-          hole_concat_map actions
+          action_hole_concat_map actions
             ~f:(fun ac_hd ac ac_tl ->
               match ac.op with
               | CoPhago ac_middle, ac_outer -> 
@@ -142,14 +155,14 @@ let phago_step bs =
 
 let exo_step br_outer =  
   let { actions; contents = cont_outer; _ } = br_outer in 
-  hole_concat_map actions
+  action_hole_concat_map actions
     ~f:(fun ac_hd1 ac1 ac_tl1 -> 
       match ac1.op with
       | CoExo, ac_outer1 ->
         brane_hole_concat_map cont_outer
           ~f:(fun br_hd br_inner br_tl ->
             let { actions; contents = cont_inner; _ } = br_inner in
-            hole_concat_map actions
+            action_hole_concat_map actions
               ~f:(fun ac_hd2 ac2 ac_tl2 ->
                 match ac2.op with
                 | Exo, ac_outer2 -> [
@@ -163,7 +176,7 @@ let exo_step br_outer =
 
 let pino_step br =
   let { actions; contents; _ } = br in
-  hole_concat_map actions
+  action_hole_concat_map actions
     ~f:(fun ac_hd ac ac_tl ->
       match ac.op with 
       | Pino ac_inner, ac_outer -> 
@@ -214,7 +227,7 @@ let bind_release_step sys =
   in
   brane_hole_concat_map sys
     ~f:(fun sys_hd b sys_tl ->
-      hole_concat_map b.actions
+      action_hole_concat_map b.actions
         ~f:(fun act_hd act act_tl -> 
           match act.op with
           | BindRelease { bind_out; bind_in; release_out; release_in }, cont ->
@@ -473,7 +486,7 @@ let sys_of_tokens tokens =
         Ok (fun cont -> Pino arg, cont)
       | MateTok -> Ok (fun cont -> mate cont)
       | CoMateTok -> Ok (fun cont -> comate cont)
-      | BudTok -> Ok (fun cont -> bud cont)
+      | BudTok -> Ok bud
       | CoBudTok -> 
         let%bind () = eat LParen in
         let%bind arg = eat_actions ~close:RParen act_bs in
@@ -505,10 +518,10 @@ let sys_of_tokens tokens =
       let%bind () = eat LParen in
       let%bind cont = eat_actions ~close:RParen act_bs in
       let%bind () = eat RParen in
-      Ok [{ arep; op = op_fun cont }]
+      Ok [Action { arep; op = op_fun cont }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
-      | Some actions -> Ok actions
+      | Some actions -> Ok [ProcessName (action_id, actions)]
       | None -> Error (NoActionForId action_id)
       end
     | token -> Error (ExpectedOp token)
@@ -615,7 +628,11 @@ and string_of_action a =
   let { arep; op } = a in
   (if arep then "!" else "") ^
   (string_of_op op)
-and string_of_actions a = string_of_list ~sep:", " string_of_action a
+and string_of_actions a = string_of_list ~sep:", "
+  (function
+  | Action a -> string_of_action a
+  | ProcessName (n, _) -> n)
+  a
 (* TODO: is there a better way to keep this in sync with the parser? *)
 and string_of_op = function
   | Phago, actions ->
@@ -675,13 +692,16 @@ let b = !coexo.() in
     (Ok
      ((Brane
        ((actions
-         (((op (Phago (((op (Exo ())) (arep false))))) (arep false))
-          ((op (CoExo ())) (arep true))
-          ((op
-            ((BindRelease (bind_out ()) (bind_in (test_1)) (release_out (test_3))
-              (release_in ()))
-             ()))
-           (arep false))))
+         ((ProcessName a
+           ((Action
+             ((op (Phago ((Action ((op (Exo ())) (arep false)))))) (arep false)))))
+          (ProcessName b ((Action ((op (CoExo ())) (arep true)))))
+          (Action
+           ((op
+             ((BindRelease (bind_out ()) (bind_in (test_1))
+               (release_out (test_3)) (release_in ()))
+              ()))
+            (arep false)))))
         (brep false)
         (contents
          ((Molecule test_1) (Brane ((actions ()) (brep false) (contents ())))
@@ -691,7 +711,7 @@ let%expect_test "let parser test" =
   let s = "let a = mate.() in let b = !coexo.() in (a, b)[]" in
   print_parse_result (sys_of_string s);
   [%expect{|
-    (phago.(exo.()), !coexo.())[] |}];
+    (a, b)[] |}];
   [%expect {| |}]
 
 let print_one_execution ?n s = s
@@ -890,14 +910,14 @@ plant_vacuole, :atp, :clminus
 
     :adp,
     :p,
-    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[
+    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), ion_channel, proton_antiporter)[
      :hplus,
      :hminus],
     :clminus
 
     :adp,
     :p,
-    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), !exch(:naplus)(:hplus)=>(:hplus)(:naplus).())[
+    (!exch(:atp)()=>(:adp, :p)(:hplus, :hminus).(), !exch(:clminus)(:hplus)=>()(:hplus, :clminus).(), proton_antiporter)[
      :hplus,
      :clminus,
      :hminus] |}]
@@ -982,7 +1002,7 @@ virus, cell
     (!cophago(phago.(exo.())).(), !coexo.())[
      (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
       (coexo.(exo.()))[
-       (!phago.(), exch(:trigger)(:vrna)=>(:vrna)().())[
+       (!phago.(), disasm)[
         :vrna]]],
      :trigger,
      vrna_repl,
