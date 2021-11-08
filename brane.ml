@@ -294,6 +294,9 @@ let rec eval_tree e n x = Node (x,
 let rec map_tree ~f = function
   | Node (x, xs) -> Node (f x, List.map ~f:(map_tree ~f) xs)
 
+let rec size = function
+  | Node (_, xs) -> List.fold_left ~f:(+) ~init:1 (List.map ~f:size xs)
+
 let print_system_eval_tree s = 
   s |> eval_tree step_system 10
   |> sexp_of_tree sexp_of_sys
@@ -720,7 +723,7 @@ let print_one_execution ?n s = s
     ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
   |> Result.ok_or_failwith
   |> eval_tree step_system (Option.value ~default:10 n) 
-  |> left_side
+  |> (fun tree -> Printf.printf "Summarizing tree of size %d with one execution:\n\n" (size tree); left_side tree)
   |> List.map ~f:(string_of_sys)
   |> List.iter ~f:(fun x -> Printf.printf "%s\n\n" x)
 
@@ -735,6 +738,8 @@ let envelope_vesicle = (exo.(viral_envelope))[] in
 virus, cell
 ";
   [%expect {|
+    Summarizing tree of size 27 with one execution:
+
     virus,
     cell
 
@@ -775,6 +780,8 @@ let%expect_test "basic phago" = print_one_execution "
 (!phago.())[], (!cophago().())[]
 ";
   [%expect {|
+    Summarizing tree of size 2 with one execution:
+
     (!phago.())[],
     (!cophago().())[]
 
@@ -786,6 +793,8 @@ let%expect_test "basic exo" = print_one_execution "
 (!coexo.())[(!exo.())[]]
 ";
   [%expect {|
+    Summarizing tree of size 2 with one execution:
+
     (!coexo.())[
      (!exo.())[]]
 
@@ -795,6 +804,8 @@ let%expect_test "basic pino" = print_one_execution ~n:3 "
 (!pino().())[]
 ";
   [%expect {|
+    Summarizing tree of size 4 with one execution:
+
     (!pino().())[]
 
     (!pino().())[
@@ -813,6 +824,8 @@ let%expect_test "basic mate" = print_one_execution ~n:3 "
 (mate.())[], (comate.())[]
 ";
   [%expect {|
+    Summarizing tree of size 4 with one execution:
+
     (phago.(exo.()))[],
     (cophago(coexo.(exo.())).(coexo.()))[]
 
@@ -829,6 +842,8 @@ let%expect_test "basic drip" = print_one_execution ~n:3 "
 (cobud().())[(bud.())[]]
 ";
   [%expect {|
+    Summarizing tree of size 4 with one execution:
+
     (pino(cophago().(exo.())).(coexo.()))[
      (phago.())[]]
 
@@ -849,6 +864,8 @@ let%expect_test "basic drip" = print_one_execution ~n:3 "
 (drip().())[]
 ";
   [%expect {|
+    Summarizing tree of size 4 with one execution:
+
     (pino(pino().(exo.())).(coexo.()))[]
 
     (coexo.())[
@@ -865,6 +882,8 @@ let%expect_test "basic bind release" = print_one_execution "
 (exch()(:a)=>()(:b).())[:a]
 ";
   [%expect {|
+    Summarizing tree of size 2 with one execution:
+
     (exch()(:a)=>()(:b).())[
      :a]
 
@@ -876,6 +895,8 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
   (!exch()()=>(:a)().())[]]
 ";
   [%expect{|
+    Summarizing tree of size 7 with one execution:
+
     (exch()(:a)=>(:b)().())[
      (!exch()()=>(:a)().())[]]
 
@@ -904,6 +925,8 @@ let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
 plant_vacuole, :atp, :clminus
 ";
   [%expect {|
+    Summarizing tree of size 3 with one execution:
+
     plant_vacuole,
     :atp,
     :clminus
@@ -922,7 +945,6 @@ plant_vacuole, :atp, :clminus
      :clminus,
      :hminus] |}]
 
-(* TODO: Cardelli has :trigger repeat - is this part of his syntax? *)
 (* TODO: Had to inline cytosol - the contents of cell - due to parsing ambiguity *)
 (* TODO: is there another execution branch? *)
 let%expect_test "viral infection" = print_one_execution "
@@ -948,6 +970,8 @@ let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
 virus, cell
 ";
   [%expect {|
+    Summarizing tree of size 17320 with one execution:
+
     virus,
     cell
 
@@ -1008,7 +1032,3 @@ virus, cell
      vrna_repl,
      capsomer_tran,
      er] |}]
-
-(*
-
-*)
