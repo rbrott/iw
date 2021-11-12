@@ -1,18 +1,55 @@
+(* interactive evaluation tree explorer *)
 open Core
+open Stdio
 
-open Brane
+let main sys =  
+  let rec loop sys =
+    let sys_str = Brane.string_of_sys sys in
+    let next = Brane.step_system sys in
+      Printf.printf "%s\n\n" sys_str;
+    List.iteri ~f:(fun i sys' -> 
+      let sys'_str = Brane.string_of_sys sys' in
+      let diff = Patdiff.Patdiff_core.patdiff
+        ~prev:{ name = ""; text = sys_str } ~next:{ name = ""; text = sys'_str } () in
+      Printf.printf "[%d] %s\n\n" i diff) next;
+    (* TODO: why do I need to flush? *)
+    Out_channel.flush Out_channel.stdout;
+    let choice_line = In_channel.input_line ~fix_win_eol:true In_channel.stdin in
+    print_endline "";
+    match choice_line with
+    | None -> ()
+    | Some line -> 
+      let choice = line
+        |> String.strip ~drop:(Char.equal '\n')
+        |> Int.of_string
+      in
+      loop (List.nth_exn next choice)
+  in loop sys
 
-let () =
-  let s = Replicate (Replicate (Compose (Empty, Membrane ("Test", Empty)))) in
-  (* let s = Compose (Empty, Compose (Empty, Empty)) in
-  let t = eval_tree step_system 10 s in
-  let _, dot = dot_of_tree 
-    (fun i s -> 
-      let i, s = dot_of_system i s in
-      i + 1, Printf.sprintf "subgraph cluster_%d { style=bold; dummy_%d[shape=point,style=invis] %s }" i i s)
-    0 t in *)
-  let _, dot = dot_of_system 0 s in
-  Out_channel.output_string 
-    (Out_channel.create ~fail_if_exists:false "main.dot")
-    ("digraph { compound=true; " ^ dot ^ " }")
+let () = "
+let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
+let capsid = !bud.(), disasm in
+let nucap = (capsid)[:vrna] in
 
+let vrna_repl = (!exch(:vrna)()=>(:vrna, :vrna)().())[] in
+
+let capsomers = exch(:vrna)()=>()(:vrna).(capsid) in
+let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip(capsomers).()))[] in
+
+let viral_envelope = cobud(phago.(exo.())).() in
+let envelope_vesicle = (exo.(viral_envelope))[] in
+
+let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
+
+let virus = (phago.(exo.()))[nucap] in
+let membrane = !cophago(mate.()).(), !coexo. () in
+let endosome = (!comate.(), !coexo.())[] in
+let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
+
+virus, cell
+"
+  |> Brane.sys_of_string 
+  |> Result.map_error 
+    ~f:(fun x -> x |> Brane.sexp_of_error |> Sexp.to_string_hum)
+  |> Result.ok_or_failwith
+  |> main

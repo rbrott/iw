@@ -1,19 +1,16 @@
 open Core
 
 type molecule = string
-  [@@deriving sexp, equal]
+  [@@deriving sexp, equal, compare]
 
 type process = process_elt list
-  [@@deriving sexp]
 and process_elt =
   | Action of action
   | ProcessName of string * process
-  [@@deriving sexp]
 and action = 
   { op: op
   ; arep: bool 
   }
-  [@@deriving sexp]
 and op = code * process
 and code =
   (* brane interactions *)
@@ -27,21 +24,19 @@ and code =
     { bind_out: molecule list; bind_in: molecule list
     ; release_out: molecule list; release_in: molecule list
     }
-  [@@deriving sexp]
+  [@@deriving sexp, compare]
 
 type sys = sys_elt list
-  [@@deriving sexp]
 and sys_elt =
   | Brane of brane
   | Molecule of string
   | SysName of string * sys
-  [@@deriving sexp]
 and brane = 
   (* TODO: probably rename actions at some point *)
   { actions: process
   ; brep: bool
   ; contents: sys }
-  [@@deriving sexp]
+  [@@deriving sexp, compare]
 
 
 let mate cont = Phago, [Action { arep = false; op = Exo, cont }]
@@ -303,6 +298,50 @@ let print_system_eval_tree s =
   |> Sexp.to_string_hum |> print_endline
 
 
+module Sys = struct
+  module T = struct
+    type t = sys
+    [@@deriving compare, sexp_of]
+  end
+  include T
+  include Comparator.Make(T)
+end
+
+let eval_graph ~depth sys =
+  let rec aux depth sys graph =
+    match depth, Map.find graph sys with
+    | 0, _ | _, Some _ -> graph
+    | _, None -> 
+      let steps = step_system sys in
+      List.fold_left steps
+        ~init:(Map.set graph ~key:sys ~data:steps)
+        ~f:(fun graph sys' -> aux (depth - 1) sys' graph)
+  in aux depth sys (Map.empty (module Sys))
+
+let dot_of_graph graph =
+  let nexti = ref 0 in
+  let indices = ref (Map.empty (module Sys)) in
+  let index_of sys =
+    match Map.find !indices sys with
+    | Some i -> i 
+    | None -> 
+      let i = !nexti in
+      indices := Map.set !indices ~key:sys ~data:i;
+      nexti := !nexti + 1;
+      i
+  in
+  let string_of sys = string_of_int (index_of sys) in
+  Printf.sprintf "strict digraph {\n  %s\n}"
+    (String.concat ~sep:"\n  "
+      (Map.fold_right graph
+        ~init:[]
+        ~f:(fun ~key ~data acc ->
+          (Printf.sprintf "%s -> {%s}"
+            (string_of key)
+            (String.concat ~sep:", " 
+              (List.map ~f:string_of data))) :: acc)))
+
+
 type op_token =
   | PhagoTok
   | CoPhagoTok
@@ -487,19 +526,19 @@ let sys_of_tokens tokens =
         let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
         Ok (fun cont -> Pino arg, cont)
-      | MateTok -> Ok (fun cont -> mate cont)
-      | CoMateTok -> Ok (fun cont -> comate cont)
+      | MateTok -> Ok mate
+      | CoMateTok -> Ok comate
       | BudTok -> Ok bud
       | CoBudTok -> 
         let%bind () = eat LParen in
         let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (fun cont -> cobud arg cont)
+        Ok (cobud arg)
       | DripTok -> 
         let%bind () = eat LParen in
         let%bind arg = eat_actions ~close:RParen act_bs in
         let%bind () = eat RParen in
-        Ok (fun cont -> drip arg cont)
+        Ok (drip arg)
       | BindReleaseTok ->
         let%bind () = eat LParen in
         let%bind bind_out = eat_molecules ~close:RParen in
@@ -682,6 +721,29 @@ let rec left_side = function
   | Node (x, []) -> [x]
   | Node (x, hd :: _) -> x :: left_side hd
 
+let rec longest_path = function
+  | Node (x, []) -> [x]
+  | Node (x, xs) -> 
+    x :: List.fold_left 
+      ~f:(fun max_path x -> 
+        let path = longest_path x in
+        if List.length path > List.length max_path then path else max_path)
+      ~init:[] 
+      xs
+
+let best_path ~f t =
+  let rec aux = function
+    | Node (x, []) -> f x, [x]
+    | Node (x, xs) ->
+      List.fold_left
+        ~f:(fun max y ->
+          let score, path = aux y in
+          let score' = score + f x in
+          if score' > fst max then score', x :: path else max)
+        ~init:(0, [])
+        xs
+  in snd (aux t)
+
 let%expect_test "let lexer test" = "
 let a = mate.() in 
 let b = !coexo.() in 
@@ -717,13 +779,33 @@ let%expect_test "let parser test" =
     (a, b)[] |}];
   [%expect {| |}]
 
-let print_one_execution ?n s = s
+let rec count_sys_names sys =
+  List.fold_left sys
+    ~init:0
+    ~f:(fun cnt -> function
+      | Molecule _ -> cnt
+      | Brane b -> cnt + count_pr_names b.actions + count_sys_names b.contents
+      | SysName (_, s) -> 1 + count_sys_names s)
+and count_pr_names pr = 
+  List.fold_left pr
+    ~init:0
+    ~f:(fun cnt -> function
+      | Action { op = (code, cont); _ } -> 
+        cnt + 
+        (match code with
+        | Phago | Exo | CoExo | BindRelease _ -> 0
+        | CoPhago arg | Pino arg -> count_pr_names arg) + 
+        count_pr_names cont
+      | ProcessName (_, p) -> 1 + count_pr_names p)
+
+
+let print_one_execution ?get_path ?n s = s
   |> sys_of_string 
   |> Result.map_error 
     ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
   |> Result.ok_or_failwith
   |> eval_tree step_system (Option.value ~default:10 n) 
-  |> (fun tree -> Printf.printf "Summarizing tree of size %d with one execution:\n\n" (size tree); left_side tree)
+  |> Option.value ~default:left_side get_path
   |> List.map ~f:(string_of_sys)
   |> List.iter ~f:(fun x -> Printf.printf "%s\n\n" x)
 
@@ -738,8 +820,6 @@ let envelope_vesicle = (exo.(viral_envelope))[] in
 virus, cell
 ";
   [%expect {|
-    Summarizing tree of size 27 with one execution:
-
     virus,
     cell
 
@@ -780,8 +860,6 @@ let%expect_test "basic phago" = print_one_execution "
 (!phago.())[], (!cophago().())[]
 ";
   [%expect {|
-    Summarizing tree of size 2 with one execution:
-
     (!phago.())[],
     (!cophago().())[]
 
@@ -793,8 +871,6 @@ let%expect_test "basic exo" = print_one_execution "
 (!coexo.())[(!exo.())[]]
 ";
   [%expect {|
-    Summarizing tree of size 2 with one execution:
-
     (!coexo.())[
      (!exo.())[]]
 
@@ -804,8 +880,6 @@ let%expect_test "basic pino" = print_one_execution ~n:3 "
 (!pino().())[]
 ";
   [%expect {|
-    Summarizing tree of size 4 with one execution:
-
     (!pino().())[]
 
     (!pino().())[
@@ -824,8 +898,6 @@ let%expect_test "basic mate" = print_one_execution ~n:3 "
 (mate.())[], (comate.())[]
 ";
   [%expect {|
-    Summarizing tree of size 4 with one execution:
-
     (phago.(exo.()))[],
     (cophago(coexo.(exo.())).(coexo.()))[]
 
@@ -842,8 +914,6 @@ let%expect_test "basic drip" = print_one_execution ~n:3 "
 (cobud().())[(bud.())[]]
 ";
   [%expect {|
-    Summarizing tree of size 4 with one execution:
-
     (pino(cophago().(exo.())).(coexo.()))[
      (phago.())[]]
 
@@ -864,8 +934,6 @@ let%expect_test "basic drip" = print_one_execution ~n:3 "
 (drip().())[]
 ";
   [%expect {|
-    Summarizing tree of size 4 with one execution:
-
     (pino(pino().(exo.())).(coexo.()))[]
 
     (coexo.())[
@@ -882,8 +950,6 @@ let%expect_test "basic bind release" = print_one_execution "
 (exch()(:a)=>()(:b).())[:a]
 ";
   [%expect {|
-    Summarizing tree of size 2 with one execution:
-
     (exch()(:a)=>()(:b).())[
      :a]
 
@@ -895,8 +961,6 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
   (!exch()()=>(:a)().())[]]
 ";
   [%expect{|
-    Summarizing tree of size 7 with one execution:
-
     (exch()(:a)=>(:b)().())[
      (!exch()()=>(:a)().())[]]
 
@@ -913,10 +977,6 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
      :a,
      (!exch()()=>(:a)().())[]] |}]
 
-(*
-
-*)
-
 let%expect_test "plant vacuole" = print_one_execution "
 let proton_pump = !exch(:atp)()=>(:adp, :p)(:hplus, :hminus).() in 
 let ion_channel = !exch(:clminus)(:hplus)=>()(:hplus, :clminus).() in
@@ -925,8 +985,6 @@ let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
 plant_vacuole, :atp, :clminus
 ";
   [%expect {|
-    Summarizing tree of size 3 with one execution:
-
     plant_vacuole,
     :atp,
     :clminus
@@ -945,9 +1003,17 @@ plant_vacuole, :atp, :clminus
      :clminus,
      :hminus] |}]
 
+let print_graph s = s
+  |> sys_of_string 
+  |> Result.map_error 
+    ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
+  |> Result.ok_or_failwith
+  |> eval_graph ~depth:5
+  |> dot_of_graph
+  |> print_endline
+
 (* TODO: Had to inline cytosol - the contents of cell - due to parsing ambiguity *)
-(* TODO: is there another execution branch? *)
-let%expect_test "viral infection" = print_one_execution "
+let%expect_test "viral infection" = print_graph "
 let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
 let capsid = !bud.(), disasm in
 let nucap = (capsid)[:vrna] in
@@ -970,65 +1036,13 @@ let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
 virus, cell
 ";
   [%expect {|
-    Summarizing tree of size 17320 with one execution:
-
-    virus,
-    cell
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (phago.(exo.()))[
-      (exo.())[
-       nucap]],
-     endosome,
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-      (coexo.(exo.()))[
-       (exo.())[
-        (exo.())[
-         nucap]]]],
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-      (exo.())[],
-      (exo.())[
-       nucap]],
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-      (exo.())[
-       nucap]],
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (!cophago(coexo.(exo.())).(coexo.()), !coexo.())[],
-     nucap,
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
-
-    (!cophago(phago.(exo.())).(), !coexo.())[
-     (coexo.(), !cophago(coexo.(exo.())).(coexo.()), !coexo.())[
-      (coexo.(exo.()))[
-       (!phago.(), disasm)[
-        :vrna]]],
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er] |}]
+    strict digraph {
+      0 -> {3}
+      8 -> {12, 13, 4}
+      7 -> {4}
+      9 -> {10, 11, 4, 5}
+      2 -> {7, 8, 6, 9}
+      6 -> {4, 5}
+      3 -> {2}
+      1 -> {0}
+    } |}]
