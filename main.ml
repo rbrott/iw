@@ -26,7 +26,7 @@ let main sys =
       loop (List.nth_exn next choice)
   in loop sys
 
-let () = Examples.enzyme_mutex
+let () = Brane.Examples.virus_named
   |> Brane.sys_of_string 
   |> Result.map_error 
     ~f:(fun x -> x |> Brane.sexp_of_error |> Sexp.to_string_hum)

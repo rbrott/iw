@@ -691,17 +691,28 @@ and string_of_actions a = string_of_list ~sep:", "
   | ProcessName (n, _) -> n)
   a
 (* TODO: is there a better way to keep this in sync with the parser? *)
+and string_of_name name = 
+  match name with
+  | None -> ""
+  | Some name -> "{" ^ name ^ "}"
 and string_of_op = function
-  | Phago _, actions ->
-    Printf.sprintf "phago.(%s)" (string_of_actions actions)
-  | CoPhago (_, inner), outer ->
-    Printf.sprintf "cophago(%s).(%s)" 
+  | Phago name, actions ->
+    Printf.sprintf "phago%s.(%s)" 
+      (string_of_name name) 
+      (string_of_actions actions)
+  | CoPhago (name, inner), outer ->
+    Printf.sprintf "cophago%s(%s).(%s)" 
+      (string_of_name name) 
       (string_of_actions inner)
       (string_of_actions outer)
-  | Exo _, actions ->
-    Printf.sprintf "exo.(%s)" (string_of_actions actions)
-  | CoExo _, actions ->
-    Printf.sprintf "coexo.(%s)" (string_of_actions actions)
+  | Exo name, actions ->
+    Printf.sprintf "exo%s.(%s)" 
+      (string_of_name name) 
+      (string_of_actions actions)
+  | CoExo name, actions ->
+    Printf.sprintf "coexo%s.(%s)" 
+      (string_of_name name) 
+      (string_of_actions actions)
   | Pino inner, outer ->
     Printf.sprintf "pino(%s).(%s)" 
       (string_of_actions inner)
@@ -1037,3 +1048,7 @@ let%expect_test "named virus" = print_graph Examples.virus_named;
       3 -> {2}
       1 -> {0}
     } |}]
+
+module Examples = struct
+  include Examples
+end
