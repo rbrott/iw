@@ -809,16 +809,7 @@ let print_one_execution ?get_path ?n s = s
   |> List.map ~f:(string_of_sys)
   |> List.iter ~f:(fun x -> Printf.printf "%s\n\n" x)
 
-let%expect_test "molecular virus example" = print_one_execution "
-let nucap = (!bud.())[] in
-let virus = (phago.(exo.()))[nucap] in
-let membrane = !cophago(mate.()).(), !coexo. () in
-let cytosol = (!comate.(), !coexo.())[] in
-let cell = (membrane)[cytosol] in
-let viral_envelope = cobud(phago.(exo.())).() in
-let envelope_vesicle = (exo.(viral_envelope))[] in
-virus, cell
-";
+let%expect_test "molecular virus example" = print_one_execution Examples.virus_lite;
   [%expect {|
     virus,
     cell
@@ -977,13 +968,7 @@ let%expect_test "replicated bind release" = print_one_execution ~n:3 "
      :a,
      (!exch()()=>(:a)().())[]] |}]
 
-let%expect_test "plant vacuole" = print_one_execution "
-let proton_pump = !exch(:atp)()=>(:adp, :p)(:hplus, :hminus).() in 
-let ion_channel = !exch(:clminus)(:hplus)=>()(:hplus, :clminus).() in
-let proton_antiporter = !exch(:naplus)(:hplus)=>(:hplus)(:naplus).() in 
-let plant_vacuole = (proton_pump, ion_channel, proton_antiporter)[] in
-plant_vacuole, :atp, :clminus
-";
+let%expect_test "plant vacuole" = print_one_execution Examples.plant_vacuole;
   [%expect {|
     plant_vacuole,
     :atp,
@@ -1013,28 +998,7 @@ let print_graph s = s
   |> print_endline
 
 (* TODO: Had to inline cytosol - the contents of cell - due to parsing ambiguity *)
-let%expect_test "viral infection" = print_graph "
-let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
-let capsid = !bud.(), disasm in
-let nucap = (capsid)[:vrna] in
-
-let vrna_repl = (!exch(:vrna)()=>(:vrna, :vrna)().())[] in
-
-let capsomers = exch(:vrna)()=>()(:vrna).(capsid) in
-let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip(capsomers).()))[] in
-
-let viral_envelope = cobud(phago.(exo.())).() in
-let envelope_vesicle = (exo.(viral_envelope))[] in
-
-let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
-
-let virus = (phago.(exo.()))[nucap] in
-let membrane = !cophago(mate.()).(), !coexo. () in
-let endosome = (!comate.(), !coexo.())[] in
-let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
-
-virus, cell
-";
+let%expect_test "viral infection" = print_graph Examples.virus;
   [%expect {|
     strict digraph {
       0 -> {3}

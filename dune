@@ -1,7 +1,7 @@
 (library
  (name brane)
  (inline_tests)
- (modules brane)
+ (modules brane examples)
  (libraries core patdiff)
  (preprocess
   (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))
@@ -13,3 +13,9 @@
  (preprocess
   (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))
 
+(executable
+ (name main2)
+ (modules main2)
+ (libraries core brane)
+ (preprocess
+  (pps ppx_deriving.eq ppx_compare ppx_let ppx_expect ppx_sexp_conv)))

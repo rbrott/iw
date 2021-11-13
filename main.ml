@@ -26,28 +26,7 @@ let main sys =
       loop (List.nth_exn next choice)
   in loop sys
 
-let () = "
-let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
-let capsid = !bud.(), disasm in
-let nucap = (capsid)[:vrna] in
-
-let vrna_repl = (!exch(:vrna)()=>(:vrna, :vrna)().())[] in
-
-let capsomers = exch(:vrna)()=>()(:vrna).(capsid) in
-let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip(capsomers).()))[] in
-
-let viral_envelope = cobud(phago.(exo.())).() in
-let envelope_vesicle = (exo.(viral_envelope))[] in
-
-let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
-
-let virus = (phago.(exo.()))[nucap] in
-let membrane = !cophago(mate.()).(), !coexo. () in
-let endosome = (!comate.(), !coexo.())[] in
-let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
-
-virus, cell
-"
+let () = Examples.enzyme_mutex
   |> Brane.sys_of_string 
   |> Result.map_error 
     ~f:(fun x -> x |> Brane.sexp_of_error |> Sexp.to_string_hum)
