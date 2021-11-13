@@ -365,6 +365,8 @@ type token =
   | RParen
   | LBracket
   | RBracket
+  | LBrace
+  | RBrace
   | Comma
   | Equal
   | Let
@@ -427,6 +429,8 @@ let tokens_of_string s =
       | `Begin, Some ')' -> next (); Ok `Begin, Some RParen
       | `Begin, Some '[' -> next (); Ok `Begin, Some LBracket
       | `Begin, Some ']' -> next (); Ok `Begin, Some RBracket
+      | `Begin, Some '{' -> next (); Ok `Begin, Some LBrace
+      | `Begin, Some '}' -> next (); Ok `Begin, Some RBrace
       (* errors *)
       | `Begin, Some c -> Error (BadCharacter c), None
       (* end *)
@@ -511,56 +515,67 @@ let sys_of_tokens tokens =
   let rec eat_action act_bs = 
     let arep = eat_opt Bang in 
     match peek () with
-    | Op op_tok -> next(); let%bind op_fun =
-      (match op_tok with
-      | PhagoTok -> Ok (fun cont -> Phago None, cont)
-      | CoPhagoTok -> 
-        let%bind () = eat LParen in
-        let%bind arg = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (fun cont -> CoPhago (None, arg), cont)
-      | ExoTok -> Ok (fun cont -> Exo None, cont)
-      | CoExoTok -> Ok (fun cont -> CoExo None, cont)
-      | PinoTok -> 
-        let%bind () = eat LParen in
-        let%bind arg = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (fun cont -> Pino arg, cont)
-      | MateTok -> Ok (mate None)
-      | CoMateTok -> Ok (comate None)
-      | BudTok -> Ok (bud None)
-      | CoBudTok -> 
-        let%bind () = eat LParen in
-        let%bind arg = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (cobud None arg)
-      | DripTok -> 
-        let%bind () = eat LParen in
-        let%bind arg = eat_actions ~close:RParen act_bs in
-        let%bind () = eat RParen in
-        Ok (drip None arg)
-      | BindReleaseTok ->
-        let%bind () = eat LParen in
-        let%bind bind_out = eat_molecules ~close:RParen in
-        let%bind () = eat RParen in
-        let%bind () = eat LParen in
-        let%bind bind_in = eat_molecules ~close:RParen in
-        let%bind () = eat RParen in
-        let%bind () = eat RArrow in
-        let%bind () = eat LParen in
-        let%bind release_out = eat_molecules ~close:RParen in
-        let%bind () = eat RParen in
-        let%bind () = eat LParen in
-        let%bind release_in = eat_molecules ~close:RParen in
-        let%bind () = eat RParen in
-        Ok (fun cont -> BindRelease { 
-          bind_out; bind_in; release_out; release_in }, cont))
+    | Op op_tok -> next(); 
+      let%bind name = 
+        (match op_tok, peek() with
+        | BindReleaseTok, _ -> Ok None
+        | _, LBrace ->
+          let%bind () = eat LBrace in
+          let%bind name = eat_id () in
+          let%bind () = eat RBrace in
+          Ok (Some name)
+        | _ -> Ok None)
+      in
+      let%bind op_fun =
+        (match op_tok with
+        | PhagoTok -> Ok (fun name cont -> Phago name, cont)
+        | CoPhagoTok -> 
+          let%bind () = eat LParen in
+          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind () = eat RParen in
+          Ok (fun name cont -> CoPhago (name, arg), cont)
+        | ExoTok -> Ok (fun name cont -> Exo name, cont)
+        | CoExoTok -> Ok (fun name cont -> CoExo name, cont)
+        | PinoTok -> 
+          let%bind () = eat LParen in
+          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind () = eat RParen in
+          Ok (fun _name cont -> Pino arg, cont)
+        | MateTok -> Ok mate
+        | CoMateTok -> Ok comate
+        | BudTok -> Ok bud
+        | CoBudTok -> 
+          let%bind () = eat LParen in
+          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind () = eat RParen in
+          Ok (fun name -> cobud name arg)
+        | DripTok -> 
+          let%bind () = eat LParen in
+          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind () = eat RParen in
+          Ok (fun name -> drip name arg)
+        | BindReleaseTok ->
+          let%bind () = eat LParen in
+          let%bind bind_out = eat_molecules ~close:RParen in
+          let%bind () = eat RParen in
+          let%bind () = eat LParen in
+          let%bind bind_in = eat_molecules ~close:RParen in
+          let%bind () = eat RParen in
+          let%bind () = eat RArrow in
+          let%bind () = eat LParen in
+          let%bind release_out = eat_molecules ~close:RParen in
+          let%bind () = eat RParen in
+          let%bind () = eat LParen in
+          let%bind release_in = eat_molecules ~close:RParen in
+          let%bind () = eat RParen in
+          Ok (fun _name cont -> BindRelease { 
+            bind_out; bind_in; release_out; release_in }, cont))
       in
       let%bind () = eat Dot in
       let%bind () = eat LParen in
       let%bind cont = eat_actions ~close:RParen act_bs in
       let%bind () = eat RParen in
-      Ok [Action { arep; op = op_fun cont }]
+      Ok [Action { arep; op = op_fun name cont }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
       | Some actions -> Ok [ProcessName (action_id, actions)]
@@ -1008,6 +1023,17 @@ let%expect_test "viral infection" = print_graph Examples.virus;
       9 -> {10, 11, 4, 5}
       2 -> {7, 8, 6, 9}
       6 -> {4, 5}
+      3 -> {2}
+      1 -> {0}
+    } |}]
+
+let%expect_test "named virus" = print_graph Examples.virus_named;
+  [%expect {|
+    strict digraph {
+      0 -> {3}
+      4 -> {7}
+      5 -> {6, 7}
+      2 -> {4, 5}
       3 -> {2}
       1 -> {0}
     } |}]

@@ -44,6 +44,7 @@ virus, cell
 "
 
 (* Cardelli2005 virus with names *)
+(* TODO: bind{...} shouldn't be necessary *)
 let virus_named = "
 let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
 let capsid = !bud{a}.(), disasm in
@@ -52,12 +53,12 @@ let nucap = (capsid)[:vrna] in
 let vrna_repl = (!exch(:vrna)()=>(:vrna, :vrna)().())[] in
 
 let capsomers = exch(:vrna)()=>()(:vrna).(capsid) in
-let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip(capsomers).()))[] in
+let capsomer_tran = (!exch(:vrna)()=>(:vrna)().(drip{c}(capsomers).()))[] in
 
 let viral_envelope = cobud{a}(phago.(exo.())).() in
 let envelope_vesicle = (exo.(viral_envelope))[] in
 
-let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
+let er = (!exch(:vrna)()=>(:vrna)().(drip{d}(exo.(viral_envelope)).()))[] in
 
 let virus = (phago.(exo.()))[nucap] in
 let membrane = !cophago(mate{b}.()).(), !coexo. () in
