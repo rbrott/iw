@@ -37,8 +37,33 @@ and brane =
   { actions: process
   ; brep: bool
   ; contents: sys }
-  [@@deriving sexp, compare]
+  [@@deriving sexp, equal, compare]
 
+
+let rec unfold_all_sys sys = 
+  List.fold_right sys
+    ~init:[]
+    ~f:(fun x acc ->
+      match x with
+      | Brane b -> Brane (unfold_all_brane b) :: acc
+      | SysName (_, sys) -> unfold_all_sys sys @ acc
+      | Molecule _ -> x :: acc)
+and unfold_all_brane b =
+  let { actions; contents; _ } = b in
+  { b with actions = unfold_all_process actions
+  ; contents = unfold_all_sys contents }
+and unfold_all_process p =
+  List.fold_right p
+    ~init:[]
+    ~f:(fun x acc ->
+      match x with
+      | Action ({ op; _ } as a) ->
+        let (code, cont) = op in
+        Action { a with op = (match code with
+        | CoPhago (name, arg) -> CoPhago (name, unfold_all_process arg)
+        | Pino arg -> Pino (unfold_all_process arg)
+        | code -> code), unfold_all_process cont } :: acc
+      | ProcessName (_, p) -> unfold_all_process p @ acc)
 
 let mate name cont = Phago name, [Action { arep = false; op = Exo name, cont }]
 let comate name cont = 
@@ -317,6 +342,42 @@ let eval_graph ~depth sys =
         ~init:(Map.set graph ~key:sys ~data:steps)
         ~f:(fun graph sys' -> aux (depth - 1) sys' graph)
   in aux depth sys (Map.empty (module Sys))
+
+module Queue : sig
+  type 'a t
+  val empty : 'a t
+  val push : 'a t -> 'a -> 'a t
+  val pop : 'a t -> 'a option * 'a t
+end = struct
+  type 'a t = ('a list) * ('a list)
+
+  let empty = [], []
+
+  let push (hd, tl_rev) x = (hd, x :: tl_rev)
+
+  let pop (hd, tl_rev) = 
+    match hd with
+    | x :: hd' -> Some x, (hd', tl_rev)
+    | [] ->
+      (match List.rev tl_rev with
+      | [] -> None, ([], [])
+      | x :: hd' -> Some x, (hd', [])) 
+end
+
+let naive_bfs ~f sys =
+  let rec aux frontier =
+    match Queue.pop frontier with
+    | None, _ -> None
+    | Some [], _ -> failwith "trails cannot be empty"
+    | Some (sys :: _ as trail), frontier' ->
+      if f sys then Some (List.rev trail)
+      else sys 
+        |> step_system
+        |> List.fold_left ~init:frontier' 
+          ~f:(fun f sys' -> Queue.push f (sys' :: trail))
+        |> aux
+  in aux 
+    (Queue.push Queue.empty [sys])
 
 let dot_of_graph graph =
   let nexti = ref 0 in
@@ -1048,6 +1109,156 @@ let%expect_test "named virus" = print_graph Examples.virus_named;
       3 -> {2}
       1 -> {0}
     } |}]
+
+let equal_sys_no_name sys1 sys2 =
+  equal_sys (unfold_all_sys sys1) (unfold_all_sys sys2)
+
+let%expect_test "" = Examples.virus_named
+  |> sys_of_string
+  |> Result.map_error 
+    ~f:(fun x -> x |> sexp_of_error |> Sexp.to_string_hum)
+  |> Result.ok_or_failwith
+  |> naive_bfs 
+    ~f:(fun sys ->
+      match sys with
+      | [Brane _; Brane _] -> true
+      | _ -> false)
+  |> Option.value ~default:[]
+  |> List.iter ~f:(fun sys -> 
+    Printf.printf "%s\n\n" (string_of_sys sys));
+  [%expect {|
+    virus,
+    cell
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (phago{b}.(exo{b}.()))[
+      (exo.())[
+       nucap]],
+     endosome,
+     :trigger,
+     vrna_repl,
+     capsomer_tran,
+     er]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (coexo{b}.(exo{b}.()))[
+       (exo{b}.())[
+        (exo.())[
+         nucap]]]],
+     :trigger,
+     vrna_repl,
+     capsomer_tran,
+     er]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[],
+      (exo.())[
+       nucap]],
+     :trigger,
+     vrna_repl,
+     capsomer_tran,
+     er]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     nucap,
+     :trigger,
+     vrna_repl,
+     capsomer_tran,
+     er]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     er]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.()), !exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[]]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (coexo{d}.(), !exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[
+      (pino(exo.(viral_envelope)).(exo{d}.()))[]]]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (coexo{d}.(), !exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[
+      (exo{d}.())[
+       (exo.(viral_envelope))[]]]]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[],
+     (exo.(viral_envelope))[]]
+
+    (viral_envelope, !cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[]]
+
+    (coexo{a}.(), !cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (cophago{a}(phago.(exo.())).(exo{a}.()))[],
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     (!phago{a}.())[],
+     vrna_repl,
+     capsomer_tran,
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[]]
+
+    (coexo{a}.(), !cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     (exo{a}.())[
+      (phago.(exo.()))[
+       (!phago{a}.())[]]],
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     vrna_repl,
+     capsomer_tran,
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[]]
+
+    (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
+     :vrna,
+     (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[
+      (exo{b}.())[]],
+     vrna_repl,
+     capsomer_tran,
+     (!exch(:vrna)()=>(:vrna)().(pino(pino(exo.(viral_envelope)).(exo{d}.())).(coexo{d}.())))[]],
+    (phago.(exo.()))[
+     (!phago{a}.())[]] |}]
+  
 
 module Examples = struct
   include Examples
