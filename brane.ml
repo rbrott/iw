@@ -522,7 +522,7 @@ type parse_error =
   | BadToken of { exp: token; actual: token }
   | ExpectedId of token
   | ExpectedOp of token
-  | NoActionForId of string
+  | NoProcessForId of string
   | NoSysForId of string
   | PrematureEof
   [@@deriving sexp]
@@ -571,12 +571,12 @@ let sys_of_tokens tokens =
     | Id s -> next (); Ok s
     | token -> Error (ExpectedId token)
   in
-  let rec eat_action act_bs = 
+  let rec eat_action bindings = 
     let arep = eat_opt Bang in 
     match peek () with
     | Op op_tok -> next(); 
       let%bind name = 
-        (match op_tok, peek() with
+        (match op_tok, peek () with
         | BindReleaseTok, _ -> Ok None
         | _, LBrace ->
           let%bind () = eat LBrace in
@@ -590,14 +590,14 @@ let sys_of_tokens tokens =
         | PhagoTok -> Ok (fun name cont -> Phago name, cont)
         | CoPhagoTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_process ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen bindings in
           let%bind () = eat RParen in
           Ok (fun name cont -> CoPhago (name, arg), cont)
         | ExoTok -> Ok (fun name cont -> Exo name, cont)
         | CoExoTok -> Ok (fun name cont -> CoExo name, cont)
         | PinoTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_process ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen bindings in
           let%bind () = eat RParen in
           Ok (fun _name cont -> Pino arg, cont)
         | MateTok -> Ok mate
@@ -605,12 +605,12 @@ let sys_of_tokens tokens =
         | BudTok -> Ok bud
         | CoBudTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_process ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen bindings in
           let%bind () = eat RParen in
           Ok (fun name -> cobud name arg)
         | DripTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_process ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen bindings in
           let%bind () = eat RParen in
           Ok (fun name -> drip name arg)
         | BindReleaseTok ->
@@ -632,13 +632,13 @@ let sys_of_tokens tokens =
       in
       let%bind () = eat Dot in
       let%bind () = eat LParen in
-      let%bind cont = eat_process ~close:RParen act_bs in
+      let%bind cont = eat_process ~close:RParen bindings in
       let%bind () = eat RParen in
       Ok [Action { arep; op = op_fun name cont }]
-    | Id action_id -> next(); begin
-      match Map.find act_bs action_id with
-      | Some process -> Ok [ProcessName (action_id, process)]
-      | None -> Error (NoActionForId action_id)
+    | Id pid -> next(); begin
+      match Map.find bindings pid with
+      | Some (`Process p) -> Ok [ProcessName (pid, p)]
+      | Some (`System _) | None -> Error (NoProcessForId pid)
       end
     | token -> Error (ExpectedOp token)
   and eat_molecule () = 
@@ -646,28 +646,28 @@ let sys_of_tokens tokens =
     eat_id ()
   and eat_molecules ~close = 
     eat_many ~sep:Comma ~close eat_molecule
-  and eat_process ?close act_bs = 
+  and eat_process ?close bindings = 
     let%bind process = eat_many
-      (fun () -> eat_action act_bs) ~sep:Comma ?close in
+      (fun () -> eat_action bindings) ~sep:Comma ?close in
     Ok (List.concat process)
   in
-  let rec eat_brane sys_bs act_bs = 
+  let rec eat_brane bindings = 
     match peek () with 
-    | Id sys_id -> next(); begin
-      match Map.find sys_bs sys_id with
-      | Some sys -> Ok [SysName (sys_id, sys)]
-      | None -> Error (NoSysForId sys_id)
+    | Id sid -> next(); begin
+      match Map.find bindings sid with
+      | Some (`System s) -> Ok [SysName (sid, s)]
+      | Some (`Process _) | None -> Error (NoSysForId sid)
       end
     | _ -> 
       let brep = eat_opt Bang in
       let%bind () = eat LParen in  
-      let%bind process = eat_process ~close:RParen act_bs in
+      let%bind process = eat_process ~close:RParen bindings in
       let%bind () = eat RParen in  
       let%bind () = eat LBracket in 
-      let%bind contents = eat_sys ~close:RBracket sys_bs act_bs in
+      let%bind contents = eat_sys ~close:RBracket bindings in
       let%bind () = eat RBracket in 
       Ok [Brane { brep; process; contents }]
-  and eat_sys ?close sys_bs act_bs = 
+  and eat_sys ?close bindings = 
     let%bind sys = eat_many ~sep:Comma ?close 
       (fun () -> 
         match peek () with
@@ -675,44 +675,42 @@ let sys_of_tokens tokens =
         | Colon -> 
           let%bind m = eat_molecule () in
           Ok [Molecule m]
-        | _ -> eat_brane sys_bs act_bs)
+        | _ -> eat_brane bindings)
     in 
     Ok (List.concat sys)
   in 
-  let eat_sys_or_process sys_bs act_bs =
+  let eat_sys_or_process bindings =
     match peek () with
     | Eof -> Error PrematureEof
     | Bang -> begin 
       match peek2 () with
       | LParen | LBracket -> 
-        let%bind sys = eat_sys sys_bs act_bs in
+        let%bind sys = eat_sys bindings in
         Ok (`System sys)
       | _ -> 
-        let%bind process = eat_process act_bs in
-        Ok (`Actions process)
+        let%bind process = eat_process bindings in
+        Ok (`Process process)
       end
     | LParen | LBracket -> 
-      let%bind sys = eat_sys sys_bs act_bs in
+      let%bind sys = eat_sys bindings in
       Ok (`System sys)
     | _ -> 
-      let%bind process = eat_process act_bs in
-      Ok (`Actions process)
+      let%bind process = eat_process bindings in
+      Ok (`Process process)
   in
-  let rec eat_let sys_bs act_bs =
+  let rec eat_let bindings =
     let%bind () = eat Let in
     let%bind key = eat_id () in
     let%bind () = eat Equal in
-    let%bind value = eat_sys_or_process sys_bs act_bs in
+    let%bind data = eat_sys_or_process bindings in
     let%bind () = eat In in
-    match value with
-    | `System sys -> eat_exp (Map.set sys_bs ~key ~data:sys) act_bs
-    | `Actions process -> eat_exp sys_bs (Map.set act_bs ~key ~data:process)
-  and eat_exp sys_bs act_bs = 
+    eat_exp (Map.set bindings ~key ~data)
+  and eat_exp bindings = 
     match peek () with
-    | Let -> eat_let sys_bs act_bs
-    | _ -> eat_sys sys_bs act_bs
+    | Let -> eat_let bindings
+    | _ -> eat_sys bindings
   in
-  let%bind exp = eat_exp (Map.empty (module String)) (Map.empty (module String)) in
+  let%bind exp = eat_exp (Map.empty (module String)) in
   let%bind () = eat Eof in 
   Ok exp
 
