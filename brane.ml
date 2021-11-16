@@ -14,13 +14,13 @@ and action =
 and op = code * process
 and name = string option
 and code =
-  (* brane interactions *)
+  (* brane interprocess *)
   | Phago of name
   | CoPhago of name * process
   | Exo of name
   | CoExo of name
   | Pino of process
-  (* molecule interactions *)
+  (* molecule interprocess *)
   | BindRelease of 
     { bind_out: molecule list; bind_in: molecule list
     ; release_out: molecule list; release_in: molecule list
@@ -33,8 +33,7 @@ and sys_elt =
   | Molecule of string
   | SysName of string * sys
 and brane = 
-  (* TODO: probably rename actions at some point *)
-  { actions: process
+  { process: process
   ; brep: bool
   ; contents: sys }
   [@@deriving sexp, equal, compare]
@@ -49,8 +48,8 @@ let rec unfold_all_sys sys =
       | SysName (_, sys) -> unfold_all_sys sys @ acc
       | Molecule _ -> x :: acc)
 and unfold_all_brane b =
-  let { actions; contents; _ } = b in
-  { b with actions = unfold_all_process actions
+  let { process; contents; _ } = b in
+  { b with process = unfold_all_process process
   ; contents = unfold_all_sys contents }
 and unfold_all_process p =
   List.fold_right p
@@ -142,12 +141,12 @@ let phago_step bs =
   (* produces inner branes with previous siblings *)
   brane_hole_concat_map bs
     ~f:(fun sys_hd br sys_tl ->
-      let { actions; contents = cont_inner; _ } = br in
-      action_hole_concat_map actions
+      let { process; contents = cont_inner; _ } = br in
+      action_hole_concat_map process
         ~f:(fun ac_hd ac ac_tl ->
           match ac.op with
           | Phago name, ac_inner -> [name,
-            { actions = ac_hd @ ac_inner @ ac_res ac @ ac_tl
+            { process = ac_hd @ ac_inner @ ac_res ac @ ac_tl
             ; brep = false
             ; contents = cont_inner }, 
             sys_hd @ br_res br @ sys_tl]
@@ -157,16 +156,16 @@ let phago_step bs =
     ~f:(fun (name, br_inner, bs') ->
       brane_hole_concat_map bs'
         ~f:(fun sys_hd br_outer sys_tl ->
-          let { actions; contents = cont_middle; _ } = br_outer in
-          action_hole_concat_map actions
+          let { process; contents = cont_middle; _ } = br_outer in
+          action_hole_concat_map process
             ~f:(fun ac_hd ac ac_tl ->
               match ac.op with
               | CoPhago (name', ac_middle), ac_outer when equal_name name name' -> 
                 [sys_hd @ 
-                  [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
+                  [Brane { process = ac_hd @ ac_outer @ ac_res ac @ ac_tl
                   ; brep = false
                   ; contents = 
-                    Brane { actions = ac_middle
+                    Brane { process = ac_middle
                     ; brep = false
                     ; contents = [Brane br_inner] }
                     :: cont_middle }]
@@ -174,19 +173,19 @@ let phago_step bs =
               | _ -> [])))
 
 let exo_step br_outer =  
-  let { actions; contents = cont_outer; _ } = br_outer in 
-  action_hole_concat_map actions
+  let { process; contents = cont_outer; _ } = br_outer in 
+  action_hole_concat_map process
     ~f:(fun ac_hd1 ac1 ac_tl1 -> 
       match ac1.op with
       | CoExo name, ac_outer1 ->
         brane_hole_concat_map cont_outer
           ~f:(fun br_hd br_inner br_tl ->
-            let { actions; contents = cont_inner; _ } = br_inner in
-            action_hole_concat_map actions
+            let { process; contents = cont_inner; _ } = br_inner in
+            action_hole_concat_map process
               ~f:(fun ac_hd2 ac2 ac_tl2 ->
                 match ac2.op with
                 | Exo name', ac_outer2 when equal_name name name' -> [
-                  Brane { actions = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
+                  Brane { process = ac_hd2 @ ac_outer2 @ ac_res ac2 @ ac_tl2 
                     @ ac_hd1 @ ac_outer1 @ ac_res ac1 @ ac_tl1
                   ; brep = false
                   ; contents = br_hd @ br_res br_inner @ br_tl } 
@@ -195,16 +194,16 @@ let exo_step br_outer =
       | _ -> [])
 
 let pino_step br =
-  let { actions; contents; _ } = br in
-  action_hole_concat_map actions
+  let { process; contents; _ } = br in
+  action_hole_concat_map process
     ~f:(fun ac_hd ac ac_tl ->
       match ac.op with 
       | Pino ac_inner, ac_outer -> 
         [(br_res br) @
-        [Brane { actions = ac_hd @ ac_outer @ ac_res ac @ ac_tl
+        [Brane { process = ac_hd @ ac_outer @ ac_res ac @ ac_tl
         ; brep = false
         ; contents = 
-          Brane { actions = ac_inner
+          Brane { process = ac_inner
           ; brep = false
           ; contents = [] }
           :: contents }]]
@@ -247,7 +246,7 @@ let bind_release_step sys =
   in
   brane_hole_concat_map sys
     ~f:(fun sys_hd b sys_tl ->
-      action_hole_concat_map b.actions
+      action_hole_concat_map b.process
         ~f:(fun act_hd act act_tl -> 
           match act.op with
           | BindRelease { bind_out; bind_in; release_out; release_in }, cont ->
@@ -267,7 +266,7 @@ let bind_release_step sys =
               | contents', [] -> 
                 let wrap = List.map ~f:(fun m -> Molecule m) in
                 [ wrap release_out @ sys_hd' @
-                  [Brane { actions = act_hd @ cont @ ac_res act @ act_tl 
+                  [Brane { process = act_hd @ cont @ ac_res act @ act_tl 
                   ; brep = false
                   ; contents = wrap release_in @ contents' 
                   }]
@@ -295,10 +294,10 @@ and step_brane b =
   (* exo step *)
   @ exo_step b
   (* recursive step *)
-  @ let { actions; brep; contents } = b in
+  @ let { process; brep; contents } = b in
     List.map
     ~f:(fun contents' ->
-      [Brane { actions = actions
+      [Brane { process = process
       ; brep = brep
       ; contents = contents' }])
     (step_system contents)
@@ -592,14 +591,14 @@ let sys_of_tokens tokens =
         | PhagoTok -> Ok (fun name cont -> Phago name, cont)
         | CoPhagoTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen act_bs in
           let%bind () = eat RParen in
           Ok (fun name cont -> CoPhago (name, arg), cont)
         | ExoTok -> Ok (fun name cont -> Exo name, cont)
         | CoExoTok -> Ok (fun name cont -> CoExo name, cont)
         | PinoTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen act_bs in
           let%bind () = eat RParen in
           Ok (fun _name cont -> Pino arg, cont)
         | MateTok -> Ok mate
@@ -607,12 +606,12 @@ let sys_of_tokens tokens =
         | BudTok -> Ok bud
         | CoBudTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen act_bs in
           let%bind () = eat RParen in
           Ok (fun name -> cobud name arg)
         | DripTok -> 
           let%bind () = eat LParen in
-          let%bind arg = eat_actions ~close:RParen act_bs in
+          let%bind arg = eat_process ~close:RParen act_bs in
           let%bind () = eat RParen in
           Ok (fun name -> drip name arg)
         | BindReleaseTok ->
@@ -634,12 +633,12 @@ let sys_of_tokens tokens =
       in
       let%bind () = eat Dot in
       let%bind () = eat LParen in
-      let%bind cont = eat_actions ~close:RParen act_bs in
+      let%bind cont = eat_process ~close:RParen act_bs in
       let%bind () = eat RParen in
       Ok [Action { arep; op = op_fun name cont }]
     | Id action_id -> next(); begin
       match Map.find act_bs action_id with
-      | Some actions -> Ok [ProcessName (action_id, actions)]
+      | Some process -> Ok [ProcessName (action_id, process)]
       | None -> Error (NoActionForId action_id)
       end
     | token -> Error (ExpectedOp token)
@@ -648,10 +647,10 @@ let sys_of_tokens tokens =
     eat_id ()
   and eat_molecules ~close = 
     eat_many ~sep:Comma ~close eat_molecule
-  and eat_actions ?close act_bs = 
-    let%bind actions = eat_many
+  and eat_process ?close act_bs = 
+    let%bind process = eat_many
       (fun () -> eat_action act_bs) ~sep:Comma ?close in
-    Ok (List.concat actions)
+    Ok (List.concat process)
   in
   let rec eat_brane sys_bs act_bs = 
     match peek () with 
@@ -663,12 +662,12 @@ let sys_of_tokens tokens =
     | _ -> 
       let brep = eat_opt Bang in
       let%bind () = eat LParen in  
-      let%bind actions = eat_actions ~close:RParen act_bs in
+      let%bind process = eat_process ~close:RParen act_bs in
       let%bind () = eat RParen in  
       let%bind () = eat LBracket in 
       let%bind contents = eat_sys ~close:RBracket sys_bs act_bs in
       let%bind () = eat RBracket in 
-      Ok [Brane { brep; actions; contents }]
+      Ok [Brane { brep; process; contents }]
   and eat_sys ?close sys_bs act_bs = 
     let%bind sys = eat_many ~sep:Comma ?close 
       (fun () -> 
@@ -681,7 +680,7 @@ let sys_of_tokens tokens =
     in 
     Ok (List.concat sys)
   in 
-  let eat_sys_or_actions sys_bs act_bs =
+  let eat_sys_or_process sys_bs act_bs =
     match peek () with
     | Eof -> Error PrematureEof
     | Bang -> begin 
@@ -690,25 +689,25 @@ let sys_of_tokens tokens =
         let%bind sys = eat_sys sys_bs act_bs in
         Ok (`System sys)
       | _ -> 
-        let%bind actions = eat_actions act_bs in
-        Ok (`Actions actions)
+        let%bind process = eat_process act_bs in
+        Ok (`Actions process)
       end
     | LParen | LBracket -> 
       let%bind sys = eat_sys sys_bs act_bs in
       Ok (`System sys)
     | _ -> 
-      let%bind actions = eat_actions act_bs in
-      Ok (`Actions actions)
+      let%bind process = eat_process act_bs in
+      Ok (`Actions process)
   in
   let rec eat_let sys_bs act_bs =
     let%bind () = eat Let in
     let%bind key = eat_id () in
     let%bind () = eat Equal in
-    let%bind value = eat_sys_or_actions sys_bs act_bs in
+    let%bind value = eat_sys_or_process sys_bs act_bs in
     let%bind () = eat In in
     match value with
     | `System sys -> eat_exp (Map.set sys_bs ~key ~data:sys) act_bs
-    | `Actions actions -> eat_exp sys_bs (Map.set act_bs ~key ~data:actions)
+    | `Actions process -> eat_exp sys_bs (Map.set act_bs ~key ~data:process)
   and eat_exp sys_bs act_bs = 
     match peek () with
     | Let -> eat_let sys_bs act_bs
@@ -736,17 +735,17 @@ let rec string_of_sys sys =
     | SysName (n, _) -> n)
     sys
 and string_of_brane b =
-  let { actions; brep; contents } = b in 
+  let { process; brep; contents } = b in 
   let s = contents |> string_of_sys |> indent in
   Printf.sprintf "%s(%s)[%s]" 
     (if brep then "!" else "")
-    (actions |> string_of_actions)
+    (process |> string_of_process)
     (if String.is_empty s then "" else "\n" ^ s)
 and string_of_action a = 
   let { arep; op } = a in
   (if arep then "!" else "") ^
   (string_of_op op)
-and string_of_actions a = string_of_list ~sep:", "
+and string_of_process a = string_of_list ~sep:", "
   (function
   | Action a -> string_of_action a
   | ProcessName (n, _) -> n)
@@ -757,34 +756,34 @@ and string_of_name name =
   | None -> ""
   | Some name -> "{" ^ name ^ "}"
 and string_of_op = function
-  | Phago name, actions ->
+  | Phago name, process ->
     Printf.sprintf "phago%s.(%s)" 
       (string_of_name name) 
-      (string_of_actions actions)
+      (string_of_process process)
   | CoPhago (name, inner), outer ->
     Printf.sprintf "cophago%s(%s).(%s)" 
       (string_of_name name) 
-      (string_of_actions inner)
-      (string_of_actions outer)
-  | Exo name, actions ->
+      (string_of_process inner)
+      (string_of_process outer)
+  | Exo name, process ->
     Printf.sprintf "exo%s.(%s)" 
       (string_of_name name) 
-      (string_of_actions actions)
-  | CoExo name, actions ->
+      (string_of_process process)
+  | CoExo name, process ->
     Printf.sprintf "coexo%s.(%s)" 
       (string_of_name name) 
-      (string_of_actions actions)
+      (string_of_process process)
   | Pino inner, outer ->
     Printf.sprintf "pino(%s).(%s)" 
-      (string_of_actions inner)
-      (string_of_actions outer)
+      (string_of_process inner)
+      (string_of_process outer)
   | BindRelease { bind_out; bind_in; release_out; release_in }, cont ->
     Printf.sprintf "exch(%s)(%s)=>(%s)(%s).(%s)"
       (string_of_list ~sep:", " string_of_molecule bind_out)
       (string_of_list ~sep:", " string_of_molecule bind_in)
       (string_of_list ~sep:", " string_of_molecule release_out)
       (string_of_list ~sep:", " string_of_molecule release_in)
-      (string_of_actions cont)
+      (string_of_process cont)
 
 
 type error =
@@ -843,7 +842,7 @@ let b = !coexo.() in
   [%expect {|
     (Ok
      ((Brane
-       ((actions
+       ((process
          ((ProcessName a
            ((Action
              ((op ((Phago ()) ((Action ((op ((Exo ()) ())) (arep false))))))
@@ -857,7 +856,7 @@ let b = !coexo.() in
             (arep false)))))
         (brep false)
         (contents
-         ((Molecule test_1) (Brane ((actions ()) (brep false) (contents ())))
+         ((Molecule test_1) (Brane ((process ()) (brep false) (contents ())))
           (Molecule test_2))))))) |}]
 
 let%expect_test "let parser test" = 
@@ -872,7 +871,7 @@ let rec count_sys_names sys =
     ~init:0
     ~f:(fun cnt -> function
       | Molecule _ -> cnt
-      | Brane b -> cnt + count_pr_names b.actions + count_sys_names b.contents
+      | Brane b -> cnt + count_pr_names b.process + count_sys_names b.contents
       | SysName (_, s) -> 1 + count_sys_names s)
 and count_pr_names pr = 
   List.fold_left pr
