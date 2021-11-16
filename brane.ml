@@ -497,7 +497,6 @@ let tokens_of_string s =
       | `Begin, None -> Ok `Begin, Some Eof
     in
     match state', token_opt with
-    (* TODO: return preceding tokens with error? *)
     | Error err, _ -> Error err
     | Ok state', None -> step state' tokens_rev
     | _, Some Eof -> Ok (List.rev tokens_rev)
@@ -750,7 +749,6 @@ and string_of_process a = string_of_list ~sep:", "
   | Action a -> string_of_action a
   | ProcessName (n, _) -> n)
   a
-(* TODO: is there a better way to keep this in sync with the parser? *)
 and string_of_name name = 
   match name with
   | None -> ""
