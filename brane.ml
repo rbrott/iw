@@ -524,6 +524,7 @@ type parse_error =
   | ExpectedOp of token
   | NoProcessForId of string
   | NoSysForId of string
+  | NoBindingForId of string
   | PrematureEof
   [@@deriving sexp]
 
@@ -651,6 +652,7 @@ let sys_of_tokens tokens =
       (fun () -> eat_action bindings) ~sep:Comma ?close in
     Ok (List.concat process)
   in
+  (* TODO: should be eat_sys_elt, combine with eat_molecule *)
   let rec eat_brane bindings = 
     match peek () with 
     | Id sid -> next(); begin
@@ -671,29 +673,37 @@ let sys_of_tokens tokens =
     let%bind sys = eat_many ~sep:Comma ?close 
       (fun () -> 
         match peek () with
-        (* TODO: consistency in returns? eat_brane already has Brane ctor *)
         | Colon -> 
           let%bind m = eat_molecule () in
           Ok [Molecule m]
-        | _ -> eat_brane bindings)
+        | _ -> 
+          eat_brane bindings)
     in 
     Ok (List.concat sys)
   in 
   let eat_sys_or_process bindings =
     match peek () with
     | Eof -> Error PrematureEof
-    | Bang -> begin 
-      match peek2 () with
-      | LParen | LBracket -> 
+    | Bang -> 
+      (match peek2 () with
+      | LParen | LBracket | Colon -> 
         let%bind sys = eat_sys bindings in
         Ok (`System sys)
       | _ -> 
         let%bind process = eat_process bindings in
-        Ok (`Process process)
-      end
-    | LParen | LBracket -> 
+        Ok (`Process process))
+    | LParen | LBracket | Colon -> 
       let%bind sys = eat_sys bindings in
       Ok (`System sys)
+    | Id id ->
+      (match Map.find bindings id with
+      | None -> Error (NoBindingForId id)
+      | Some (`System _) -> 
+        let%bind sys = eat_sys bindings in 
+        Ok (`System sys)
+      | Some (`Process _) ->
+        let%bind proc = eat_process bindings in
+        Ok (`Process proc))
     | _ -> 
       let%bind process = eat_process bindings in
       Ok (`Process process)
@@ -860,6 +870,14 @@ let%expect_test "let parser test" =
   print_parse_result (sys_of_string s);
   [%expect{|
     (a, b)[] |}];
+  [%expect {| |}]
+
+let%expect_test "molecule first parser test" = 
+  let s = "let c = :a in let d = c in :b, d" in
+  print_parse_result (sys_of_string s);
+  [%expect{|
+    :b,
+    d |}];
   [%expect {| |}]
 
 let rec count_sys_names sys =
@@ -1080,7 +1098,6 @@ let print_graph s = s
   |> dot_of_graph
   |> print_endline
 
-(* TODO: Had to inline cytosol - the contents of cell - due to parsing ambiguity *)
 let%expect_test "viral infection" = print_graph Examples.virus;
   [%expect {|
     strict digraph {
@@ -1129,11 +1146,7 @@ let%expect_test "" = Examples.virus_named
      (phago{b}.(exo{b}.()))[
       (exo.())[
        nucap]],
-     endosome,
-     :trigger,
-     vrna_repl,
-     capsomer_tran,
-     er]
+     cytosol]
 
     (!cophago(phago{b}.(exo{b}.())).(), !coexo.())[
      (coexo{b}.(), !cophago{b}(coexo{b}.(exo{b}.())).(coexo{b}.()), !coexo.())[

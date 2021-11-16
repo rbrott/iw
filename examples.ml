@@ -38,13 +38,13 @@ let er = (!exch(:vrna)()=>(:vrna)().(drip(exo.(viral_envelope)).()))[] in
 let virus = (phago.(exo.()))[nucap] in
 let membrane = !cophago(mate.()).(), !coexo. () in
 let endosome = (!comate.(), !coexo.())[] in
-let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
+let cytosol = endosome, :trigger, vrna_repl, capsomer_tran, er in
+let cell = (membrane)[cytosol] in
 
 virus, cell
 "
 
 (* Cardelli2005 virus with names *)
-(* TODO: bind{...} shouldn't be necessary *)
 let virus_named = "
 let disasm = exch(:trigger)(:vrna)=>(:vrna)().() in
 let capsid = !bud{a}.(), disasm in
@@ -63,7 +63,8 @@ let er = (!exch(:vrna)()=>(:vrna)().(drip{d}(exo.(viral_envelope)).()))[] in
 let virus = (phago.(exo.()))[nucap] in
 let membrane = !cophago(mate{b}.()).(), !coexo. () in
 let endosome = (!comate{b}.(), !coexo.())[] in
-let cell = (membrane)[endosome, :trigger, vrna_repl, capsomer_tran, er] in
+let cytosol = endosome, :trigger, vrna_repl, capsomer_tran, er in
+let cell = (membrane)[cytosol] in
 
 virus, cell
 "
